@@ -55,6 +55,20 @@ public final class SimpleVNCClient: @unchecked Sendable {
         try? send(message)
     }
 
+    public func requestDesktopSize(width: UInt16, height: UInt16) {
+        var message = Data([251, 0])
+        message.appendBigEndian(width)
+        message.appendBigEndian(height)
+        message.append(contentsOf: [1, 0])
+        message.appendBigEndian(UInt32(0))
+        message.appendBigEndian(UInt16(0))
+        message.appendBigEndian(UInt16(0))
+        message.appendBigEndian(width)
+        message.appendBigEndian(height)
+        message.appendBigEndian(UInt32(0))
+        try? send(message)
+    }
+
     public func sendPointer(mask: UInt8, x: UInt16, y: UInt16) {
         var message = Data([5, mask])
         message.appendBigEndian(x)
@@ -73,6 +87,14 @@ public final class SimpleVNCClient: @unchecked Sendable {
             SOL_SOCKET,
             SO_NOSIGPIPE,
             &noSignal,
+            socklen_t(MemoryLayout<Int32>.size)
+        )
+        var noDelay: Int32 = 1
+        setsockopt(
+            descriptor,
+            IPPROTO_TCP,
+            TCP_NODELAY,
+            &noDelay,
             socklen_t(MemoryLayout<Int32>.size)
         )
         var address = sockaddr_in()
@@ -142,9 +164,10 @@ public final class SimpleVNCClient: @unchecked Sendable {
         try send(pixelFormat)
 
         var encodings = Data([2, 0])
-        encodings.appendBigEndian(UInt16(2))
+        encodings.appendBigEndian(UInt16(3))
         encodings.appendBigEndian(UInt32(0))
         encodings.appendBigEndian(UInt32(bitPattern: -223))
+        encodings.appendBigEndian(UInt32(bitPattern: -308))
         try send(encodings)
         try requestUpdate(incremental: false)
     }
@@ -185,24 +208,38 @@ public final class SimpleVNCClient: @unchecked Sendable {
                 bitPattern: rectangle.readUInt32BigEndian(at: 8)
             )
             if encoding == -223 {
-                width = rectangleWidth
-                height = rectangleHeight
-                framebuffer = Data(
-                    repeating: 0,
-                    count: width * height * 4
-                )
-                try requestUpdate(incremental: false)
+                if width != rectangleWidth || height != rectangleHeight {
+                    width = rectangleWidth
+                    height = rectangleHeight
+                    framebuffer = Data(
+                        repeating: 0,
+                        count: width * height * 4
+                    )
+                    try requestUpdate(incremental: false)
+                }
+                continue
+            }
+            if encoding == -308 {
+                let header = try receiveExactly(4)
+                let screenCount = Int(header[0])
+                _ = try receiveExactly(screenCount * 16)
+                if width != rectangleWidth || height != rectangleHeight {
+                    width = rectangleWidth
+                    height = rectangleHeight
+                    framebuffer = Data(
+                        repeating: 0,
+                        count: width * height * 4
+                    )
+                    try requestUpdate(incremental: false)
+                }
                 continue
             }
             guard encoding == 0 else {
                 throw SimpleVNCError.unsupportedEncoding(encoding)
             }
-            var pixels = try receiveExactly(
+            let pixels = try receiveExactly(
                 rectangleWidth * rectangleHeight * 4
             )
-            for alphaIndex in stride(from: 3, to: pixels.count, by: 4) {
-                pixels[alphaIndex] = 255
-            }
             copy(
                 pixels: pixels,
                 x: x,
@@ -250,7 +287,7 @@ public final class SimpleVNCClient: @unchecked Sendable {
                   bytesPerRow: width * 4,
                   space: CGColorSpaceCreateDeviceRGB(),
                   bitmapInfo: CGBitmapInfo(
-                      rawValue: CGImageAlphaInfo.premultipliedFirst.rawValue
+                      rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue
                           | CGBitmapInfo.byteOrder32Little.rawValue
                   ),
                   provider: provider,

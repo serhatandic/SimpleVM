@@ -21,6 +21,221 @@ final class FoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testImmersionExitShortcutIsHostOnly() throws {
+        let matching = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [.control, .option, .command],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+        let ordinaryEscape = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "\u{1b}",
+                charactersIgnoringModifiers: "\u{1b}",
+                isARepeat: false,
+                keyCode: 53
+            )
+        )
+
+        XCTAssertTrue(ImmersionController.isExitShortcut(matching))
+        XCTAssertFalse(ImmersionController.isExitShortcut(ordinaryEscape))
+    }
+
+    @MainActor
+    func testQEMUKeyMapperIgnoresUnknownFlagsChangedEvents() throws {
+        let event = try XCTUnwrap(
+            NSEvent.keyEvent(
+                with: .flagsChanged,
+                location: .zero,
+                modifierFlags: [.shift],
+                timestamp: 0,
+                windowNumber: 0,
+                context: nil,
+                characters: "",
+                charactersIgnoringModifiers: "",
+                isARepeat: false,
+                keyCode: 0
+            )
+        )
+
+        XCTAssertNil(QEMUKeyMapper.keysym(for: event))
+    }
+
+    @MainActor
+    func testMacOSProfileMapsCommandCopyToGuestControlCopy() {
+        let settings = KeyboardMappingSettings.shared
+        let previousPreset = settings.preset
+        defer { settings.preset = previousPreset }
+        settings.preset = .macOS
+        let chord = settings.chord(
+            keyCode: 8,
+            modifiers: [.command]
+        )
+
+        XCTAssertEqual(chord.keyCode, 8)
+        XCTAssertTrue(chord.modifiers.contains(.control))
+        XCTAssertFalse(chord.modifiers.contains(.command))
+    }
+
+    @MainActor
+    func testUnmappedCommandChordUsesGuestSuper() {
+        let settings = KeyboardMappingSettings.shared
+        let previousPreset = settings.preset
+        defer { settings.preset = previousPreset }
+        settings.preset = .macOS
+        let chord = settings.chord(
+            keyCode: 16,
+            modifiers: [.command]
+        )
+
+        XCTAssertEqual(chord.keyCode, 16)
+        XCTAssertTrue(chord.modifiers.contains(.command))
+    }
+
+    @MainActor
+    func testWorkspaceSwipeChordsFollowSelectedProfile() {
+        let settings = KeyboardMappingSettings.shared
+        let previousPreset = settings.preset
+        defer { settings.preset = previousPreset }
+
+        settings.preset = .macOS
+        XCTAssertEqual(
+            settings.workspaceChord(direction: .previous),
+            GuestChord(keyCode: 116, modifiers: [.command])
+        )
+        settings.preset = .hyprland
+        XCTAssertEqual(
+            settings.workspaceChord(direction: .previous),
+            GuestChord(keyCode: 48, modifiers: [.command, .shift])
+        )
+    }
+
+    @MainActor
+    func testQEMUKeyMapperUsesSuperAndMapsANSIKeys() {
+        XCTAssertEqual(QEMUKeyMapper.keysym(forKeyCode: 8), 0x63)
+        XCTAssertEqual(QEMUKeyMapper.modifierKeysym(for: 55), 0xffeb)
+        XCTAssertEqual(
+            QEMUKeyMapper.modifierKeysyms(for: [.command]),
+            [0xffeb]
+        )
+    }
+
+    @MainActor
+    func testNavigationMappingsIgnoreSystemFunctionFlag() {
+        let settings = KeyboardMappingSettings.shared
+        let previousPreset = settings.preset
+        defer { settings.preset = previousPreset }
+        settings.preset = .macOS
+        let chord = settings.chord(
+            keyCode: 123,
+            modifiers: [.command, .function]
+        )
+
+        XCTAssertEqual(chord.keyCode, 115)
+        XCTAssertEqual(
+            chord.modifiers.intersection(
+                .deviceIndependentFlagsMask
+            ),
+            []
+        )
+    }
+
+    @MainActor
+    func testGuestInputRouterEmitsBalancedMappedChord() {
+        var events: [NSEvent] = []
+        let router = GuestInputRouter { events.append($0) }
+        router.press(
+            hostKeyCode: 8,
+            chord: GuestChord(keyCode: 8, modifiers: [.control]),
+            repeats: false
+        )
+        router.release(hostKeyCode: 8)
+
+        XCTAssertEqual(
+            events.map(\.type),
+            [.flagsChanged, .keyDown, .keyUp, .flagsChanged]
+        )
+        XCTAssertEqual(events.map(\.keyCode), [59, 8, 8, 59])
+        XCTAssertTrue(events[0].modifierFlags.contains(.control))
+        XCTAssertFalse(events[3].modifierFlags.contains(.control))
+        XCTAssertFalse(events.contains(where: { $0.keyCode == 55 }))
+    }
+
+    @MainActor
+    func testPointerInteractionEmitsBalancedGuestSuper() {
+        var events: [NSEvent] = []
+        let router = GuestInputRouter { events.append($0) }
+
+        router.beginPointerInteraction(modifiers: [.command])
+        router.endPointerInteraction()
+
+        XCTAssertEqual(events.map(\.type), [.flagsChanged, .flagsChanged])
+        XCTAssertEqual(events.map(\.keyCode), [55, 55])
+        XCTAssertTrue(events[0].modifierFlags.contains(.command))
+        XCTAssertFalse(events[1].modifierFlags.contains(.command))
+    }
+
+    @MainActor
+    func testSyntheticModifierEventsHaveCorrectDirection() {
+        var events: [NSEvent] = []
+        let router = GuestInputRouter { events.append($0) }
+        router.beginPointerInteraction(modifiers: [.control])
+        router.endPointerInteraction()
+
+        XCTAssertTrue(QEMUKeyMapper.isModifierDown(events[0]))
+        XCTAssertFalse(QEMUKeyMapper.isModifierDown(events[1]))
+    }
+
+    @MainActor
+    func testHeldHostModifierKeepsGuestSwitcherOpen() {
+        var events: [NSEvent] = []
+        let router = GuestInputRouter { events.append($0) }
+        router.updateHostModifiers([.command])
+        router.press(
+            hostKeyCode: 48,
+            chord: GuestChord(keyCode: 48, modifiers: [.option]),
+            repeats: false
+        )
+        router.release(hostKeyCode: 48)
+
+        XCTAssertEqual(
+            events.map(\.type),
+            [.flagsChanged, .keyDown, .keyUp]
+        )
+        router.updateHostModifiers([])
+        XCTAssertEqual(events.last?.type, .flagsChanged)
+        XCTAssertEqual(events.last?.keyCode, 58)
+        XCTAssertFalse(events.last?.modifierFlags.contains(.option) ?? true)
+    }
+
+    @MainActor
+    func testMacOSPointerCommandMapsToGuestControl() {
+        let settings = KeyboardMappingSettings.shared
+        let previousPreset = settings.preset
+        defer { settings.preset = previousPreset }
+        settings.preset = .macOS
+
+        let modifiers = settings.pointerModifiers(from: [.command])
+
+        XCTAssertTrue(modifiers.contains(.control))
+        XCTAssertFalse(modifiers.contains(.command))
+    }
+
+    @MainActor
     func testAppleInstallerConfigurationPersistsPlatformState() throws {
         let directory = FileManager.default.temporaryDirectory.appending(
             path: UUID().uuidString,

@@ -4,6 +4,7 @@ import SwiftUI
 struct MachineDetailView: View {
     @Bindable var model: AppModel
     let machine: Machine
+    let immersion: ImmersionController
 
     @State private var confirmsDeletion = false
 
@@ -12,15 +13,62 @@ struct MachineDetailView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            display
-            Divider()
-            statusBar
+        Group {
+            if immersion.isActive(machineID: machine.id) {
+                display
+                    .ignoresSafeArea()
+                    .overlay(alignment: .top) {
+                        if immersion.requiresAccessibilityPermission
+                            || immersion.showsExitHint {
+                            VStack(spacing: 8) {
+                                if immersion.requiresAccessibilityPermission {
+                                    HStack {
+                                        Text(
+                                            "Accessibility permission is required for system shortcuts and workspace swipes."
+                                        )
+                                        .foregroundStyle(.orange)
+                                        Button("Open Settings") {
+                                            immersion.openAccessibilitySettings()
+                                        }
+                                        Button("Exit Immersion") {
+                                            immersion.exit()
+                                        }
+                                    }
+                                } else {
+                                    Text(
+                                        "\(ImmersionController.exitShortcutDescription) to exit immersion"
+                                    )
+                                }
+                            }
+                            .font(.callout.weight(.medium))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(.ultraThickMaterial, in: Capsule())
+                            .padding(.top, 16)
+                        }
+                    }
+            } else {
+                VStack(spacing: 0) {
+                    display
+                    Divider()
+                    statusBar
+                }
+            }
         }
         .navigationTitle(machine.name)
         .toolbar {
-            ToolbarItemGroup {
+            ToolbarItemGroup(placement: .primaryAction) {
                 lifecycleControls
+                Button {
+                    enterImmersion()
+                } label: {
+                        Label(
+                            "Enter Immersion",
+                            systemImage: "arrow.up.left.and.arrow.down.right"
+                        )
+                    }
+
+                .disabled(runtimeState != .running)
                 Menu {
                     if runtimeState == .running || runtimeState == .stopping {
                         Button("Force Stop", role: .destructive) {
@@ -86,6 +134,12 @@ struct MachineDetailView: View {
                 .accessibilityLabel("Machine actions")
             }
         }
+        .onChange(of: runtimeState) { _, state in
+            if immersion.isActive(machineID: machine.id),
+               state != .running {
+                immersion.exit()
+            }
+        }
         .confirmationDialog(
             "Delete \(machine.name)?",
             isPresented: $confirmsDeletion,
@@ -110,7 +164,22 @@ struct MachineDetailView: View {
                 if let virtualMachine = model.appleRuntime(
                     for: machine
                 ).virtualMachine {
-                    MachineDisplayView(virtualMachine: virtualMachine)
+                    MachineDisplayView(
+                        virtualMachine: virtualMachine,
+                        runtime: model.appleRuntime(for: machine),
+                        isImmersive: immersion.isActive(
+                            machineID: machine.id
+                        ),
+                        pointerInteractionHandler: { active, modifiers in
+                            if active {
+                                immersion.beginPointerInteraction(
+                                    modifiers: modifiers
+                                )
+                            } else {
+                                immersion.endPointerInteraction()
+                            }
+                        }
+                    )
                 } else {
                     stoppedContent
                 }
@@ -119,8 +188,34 @@ struct MachineDetailView: View {
                 if let framebuffer = runtime.framebuffer {
                     QEMUMachineDisplayView(
                         image: framebuffer,
-                        runtime: runtime
+                        runtime: runtime,
+                        isImmersive: immersion.isActive(
+                            machineID: machine.id
+                        ),
+                        pointerInteractionHandler: { active, modifiers in
+                            if active {
+                                immersion.beginPointerInteraction(
+                                    modifiers: modifiers
+                                )
+                            } else {
+                                immersion.endPointerInteraction()
+                            }
+                        }
                     )
+                    if runtime.requiresDiskPassword {
+                        Text(
+                            "Encrypted disk is waiting for its passphrase. Type it and press Return."
+                        )
+                        .font(.callout.weight(.medium))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(.ultraThickMaterial, in: Capsule())
+                        .padding(.bottom, 24)
+                        .frame(
+                            maxHeight: .infinity,
+                            alignment: .bottom
+                        )
+                    }
                 } else {
                     stoppedContent
                 }
@@ -178,6 +273,33 @@ struct MachineDetailView: View {
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(.bar)
+    }
+
+    private func enterImmersion() {
+        switch machine.backend {
+        case .appleVirtualization:
+            let runtime = model.appleRuntime(for: machine)
+            immersion.enter(
+                machineID: machine.id,
+                keyEventHandler: { event in
+                    runtime.sendKeyEvent(event)
+                },
+                releaseKeysHandler: {
+                    runtime.releaseAllKeys()
+                }
+            )
+        case .qemu:
+            let runtime = model.qemuRuntime(for: machine)
+            immersion.enter(
+                machineID: machine.id,
+                keyEventHandler: { event in
+                    runtime.sendKeyEvent(event)
+                },
+                releaseKeysHandler: {
+                    runtime.releaseAllKeys()
+                }
+            )
+        }
     }
 
     @ViewBuilder

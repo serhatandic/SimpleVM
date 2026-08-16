@@ -83,10 +83,27 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
         vncPort: 5_901
     )
 
-    #expect(configuration.arguments.contains("q35,accel=tcg"))
+    #expect(configuration.arguments.contains("q35,accel=tcg,hpet=off"))
+    #expect(configuration.arguments.contains("max"))
     #expect(configuration.arguments.contains("Compatibility,, Test"))
     #expect(configuration.arguments.contains("127.0.0.1:1"))
     #expect(configuration.arguments.contains("virtio-vga,xres=1280,yres=800"))
+    #expect(
+        configuration.arguments.contains(
+            "virtio-blk-pci,drive=system-disk,bootindex=0"
+        )
+    )
+    #expect(
+        configuration.arguments.contains(
+            "ide-cd,drive=installer,bootindex=1"
+        )
+    )
+    #expect(
+        configuration.arguments.contains(where: {
+            $0.hasPrefix("file:")
+                && $0.hasSuffix("/serial.log")
+        })
+    )
     #expect(configuration.arguments.contains {
         $0.contains("media=cdrom")
     })

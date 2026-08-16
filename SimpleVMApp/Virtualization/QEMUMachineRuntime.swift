@@ -1,5 +1,6 @@
 import CoreGraphics
 import Foundation
+import AppKit
 import Observation
 import SimpleVMCore
 
@@ -8,6 +9,7 @@ import SimpleVMCore
 final class QEMUMachineRuntime {
     private(set) var state: MachineRuntimeState
     private(set) var framebuffer: CGImage?
+    private(set) var requiresDiskPassword = false
 
     var hasDisplay: Bool {
         framebuffer != nil
@@ -27,6 +29,21 @@ final class QEMUMachineRuntime {
 
     @ObservationIgnored
     private var diagnosticURL: URL?
+
+    @ObservationIgnored
+    private var serialMonitorTask: Task<Void, Never>?
+
+    @ObservationIgnored
+    private var serialReadOffset: UInt64 = 0
+
+    @ObservationIgnored
+    private var lastRequestedDisplaySize: (UInt16, UInt16)?
+
+    @ObservationIgnored
+    private var pressedKeysyms: Set<UInt32> = []
+
+    @ObservationIgnored
+    private var pressedModifierKeyCodes: Set<UInt16> = []
 
     init(state: MachineRuntimeState = .stopped) {
         switch state {
@@ -48,6 +65,9 @@ final class QEMUMachineRuntime {
         }
         transition(to: .starting)
         diagnosticURL = backendStateURL.appending(path: "runtime.log")
+        startSerialMonitor(
+            at: backendStateURL.appending(path: "serial.log")
+        )
         log("starting")
         do {
             let runtime = try QEMURuntimeDiscovery.discover()
@@ -124,6 +144,71 @@ final class QEMUMachineRuntime {
         vncClient?.sendPointer(mask: mask, x: x, y: y)
     }
 
+    func requestDisplaySize(width: Int, height: Int) {
+        let scale = min(
+            1,
+            min(1_920 / Double(max(width, 1)), 1_200 / Double(max(height, 1)))
+        )
+        let width = UInt16(clamping: max(Int(Double(width) * scale), 640))
+        let height = UInt16(clamping: max(Int(Double(height) * scale), 480))
+        let requested = (
+            width - (width % 8),
+            height - (height % 8)
+        )
+        guard lastRequestedDisplaySize?.0 != requested.0
+                || lastRequestedDisplaySize?.1 != requested.1 else {
+            return
+        }
+        lastRequestedDisplaySize = requested
+        vncClient?.requestDesktopSize(
+            width: requested.0,
+            height: requested.1
+        )
+    }
+
+    func sendKeyEvent(_ event: NSEvent) {
+        switch event.type {
+        case .keyDown:
+            guard let keysym = QEMUKeyMapper.keysym(for: event) else { return }
+            pressedKeysyms.insert(keysym)
+            sendKey(keysym, isDown: true)
+        case .keyUp:
+            guard let keysym = QEMUKeyMapper.keysym(for: event) else { return }
+            pressedKeysyms.remove(keysym)
+            sendKey(keysym, isDown: false)
+            if event.keyCode == 36 || event.keyCode == 76 {
+                requiresDiskPassword = false
+            }
+        case .flagsChanged:
+            guard let keysym = QEMUKeyMapper.modifierKeysym(
+                for: event.keyCode
+            ) else { return }
+            if event.keyCode == 57 {
+                sendKey(keysym, isDown: true)
+                sendKey(keysym, isDown: false)
+            } else if !QEMUKeyMapper.isModifierDown(event) {
+                pressedModifierKeyCodes.remove(event.keyCode)
+                pressedKeysyms.remove(keysym)
+                sendKey(keysym, isDown: false)
+            } else {
+                pressedModifierKeyCodes.insert(event.keyCode)
+                pressedKeysyms.insert(keysym)
+                sendKey(keysym, isDown: true)
+            }
+
+        default:
+            break
+        }
+    }
+
+    func releaseAllKeys() {
+        for keysym in pressedKeysyms {
+            sendKey(keysym, isDown: false)
+        }
+        pressedKeysyms.removeAll()
+        pressedModifierKeyCodes.removeAll()
+    }
+
     private func handle(processState: QEMUProcessController.State) {
         switch processState {
         case .stopped:
@@ -180,6 +265,7 @@ final class QEMUMachineRuntime {
             )
             return
         }
+
         guard let handle = try? FileHandle(forWritingTo: diagnosticURL) else {
             return
         }
@@ -188,12 +274,52 @@ final class QEMUMachineRuntime {
         try? handle.write(contentsOf: Data(line.utf8))
     }
 
+    private func startSerialMonitor(at url: URL) {
+        serialMonitorTask?.cancel()
+        serialReadOffset = 0
+        lastRequestedDisplaySize = nil
+        requiresDiskPassword = false
+        serialMonitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self else { return }
+                if let attributes = try? FileManager.default.attributesOfItem(
+                    atPath: url.path
+                ), let fileSize = attributes[.size] as? NSNumber {
+                    let endOffset = fileSize.uint64Value
+                    if endOffset < serialReadOffset {
+                        serialReadOffset = 0
+                    }
+                    if endOffset > serialReadOffset,
+                       let handle = try? FileHandle(forReadingFrom: url) {
+                        defer { try? handle.close() }
+                        try? handle.seek(toOffset: serialReadOffset)
+                        let data = try? handle.readToEnd()
+                        serialReadOffset = endOffset
+                        if let data,
+                           String(decoding: data, as: UTF8.self).contains(
+                            "A password is required to access the root volume"
+                           ) {
+                            requiresDiskPassword = true
+                        }
+                    }
+                }
+                try? await Task.sleep(for: .milliseconds(400))
+            }
+        }
+    }
+
     private func clearRuntime() {
+        serialMonitorTask?.cancel()
+        serialMonitorTask = nil
+        serialReadOffset = 0
+        requiresDiskPassword = false
         vncClient?.errorHandler = nil
         vncClient?.disconnect()
         vncClient = nil
         framebuffer = nil
         processController = nil
+        pressedKeysyms.removeAll()
+        pressedModifierKeyCodes.removeAll()
     }
 }
 

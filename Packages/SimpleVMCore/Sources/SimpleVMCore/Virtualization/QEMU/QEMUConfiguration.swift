@@ -60,6 +60,7 @@ public enum QEMUConfigurationBuilder {
             path: "\(socketPrefix)-agent.sock"
         )
         let logURL = backendStateURL.appending(path: "qemu.log")
+        let serialURL = backendStateURL.appending(path: "serial.log")
         let memoryMiB = max(512, machine.spec.memorySizeBytes / 1_024 / 1_024)
         let displayNumber = Int(vncPort) - 5_900
 
@@ -70,7 +71,7 @@ public enum QEMUConfigurationBuilder {
             .joined(separator: ",")
         var arguments = [
             "-name", machine.name.replacingOccurrences(of: ",", with: ",,"),
-            "-machine", "q35,accel=tcg",
+            "-machine", "q35,accel=tcg,hpet=off",
             "-cpu", "max",
             "-smp", String(machine.spec.cpuCount),
             "-m", String(memoryMiB),
@@ -78,6 +79,7 @@ public enum QEMUConfigurationBuilder {
             "-display", "none",
             "-vnc", "127.0.0.1:\(displayNumber)",
             "-qmp", "unix:\(qmpURL.path),server=on,wait=off",
+            "-serial", "file:\(serialURL.path)",
             "-device", "virtio-serial-pci",
             "-chardev",
             "socket,id=agent,path=\(agentURL.path),server=on,wait=off",
@@ -87,8 +89,12 @@ public enum QEMUConfigurationBuilder {
             "if=pflash,format=raw,unit=0,readonly=on,file=\(runtime.firmwareCodeURL.path)",
             "-drive",
             "if=pflash,format=raw,unit=1,file=\(variablesURL.path)",
-            "-drive", "file=\(diskURL.path),if=virtio,format=raw",
+            "-drive",
+            "if=none,id=system-disk,file=\(diskURL.path),format=raw,cache=writeback,aio=threads,discard=unmap,detect-zeroes=unmap",
+            "-device",
+            "virtio-blk-pci,drive=system-disk,bootindex=0",
             "-device", "virtio-vga,xres=1280,yres=800",
+            "-device", "virtio-rng-pci",
             "-device", "qemu-xhci",
             "-device", "usb-kbd",
             "-device", "usb-tablet",
@@ -98,7 +104,9 @@ public enum QEMUConfigurationBuilder {
         if let installerURL {
             arguments.append(contentsOf: [
                 "-drive",
-                "file=\(installerURL.path),media=cdrom,readonly=on"
+                "if=none,id=installer,file=\(installerURL.path),media=cdrom,readonly=on",
+                "-device",
+                "ide-cd,drive=installer,bootindex=1"
             ])
         }
 

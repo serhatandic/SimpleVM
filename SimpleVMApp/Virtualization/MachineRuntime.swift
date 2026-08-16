@@ -1,4 +1,5 @@
 import Observation
+import AppKit
 import SimpleVMCore
 import Virtualization
 
@@ -16,6 +17,15 @@ final class MachineRuntime {
 
     @ObservationIgnored
     private var virtualMachineDelegate: VirtualMachineDelegate?
+
+    @ObservationIgnored
+    weak var displayView: VZVirtualMachineView?
+
+    @ObservationIgnored
+    private var pressedModifierKeyCodes: Set<UInt16> = []
+
+    @ObservationIgnored
+    private var pressedKeyEvents: [UInt16: NSEvent] = [:]
 
     init(state: MachineRuntimeState = .stopped) {
         switch state {
@@ -80,6 +90,74 @@ final class MachineRuntime {
         }
     }
 
+    func sendKeyEvent(_ event: NSEvent) {
+        guard let displayView else { return }
+        switch event.type {
+        case .keyDown:
+            if !event.isARepeat {
+                pressedKeyEvents[event.keyCode] = event
+            }
+            displayView.keyDown(with: event)
+        case .keyUp:
+            pressedKeyEvents.removeValue(forKey: event.keyCode)
+            displayView.keyUp(with: event)
+        case .flagsChanged:
+            if event.keyCode != 57,
+               QEMUKeyMapper.modifierKeysym(for: event.keyCode) != nil {
+                if QEMUKeyMapper.isModifierDown(event) {
+                    pressedModifierKeyCodes.insert(event.keyCode)
+                } else {
+                    pressedModifierKeyCodes.remove(event.keyCode)
+                }
+            }
+            displayView.flagsChanged(with: event)
+        default:
+            break
+        }
+    }
+
+    func releaseAllKeys() {
+        if let displayView {
+            for event in pressedKeyEvents.values {
+                guard let release = NSEvent.keyEvent(
+                    with: .keyUp,
+                    location: event.locationInWindow,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: displayView.window?.windowNumber ?? 0,
+                    context: nil,
+                    characters: event.characters ?? "",
+                    charactersIgnoringModifiers:
+                        event.charactersIgnoringModifiers ?? "",
+                    isARepeat: false,
+                    keyCode: event.keyCode
+                ) else { continue }
+                displayView.keyUp(with: release)
+            }
+        }
+        pressedKeyEvents.removeAll()
+        guard let displayView else {
+            pressedModifierKeyCodes.removeAll()
+            return
+        }
+        for keyCode in pressedModifierKeyCodes {
+            guard let release = NSEvent.keyEvent(
+                with: .flagsChanged,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: displayView.window?.windowNumber ?? 0,
+                context: nil,
+                characters: "",
+                charactersIgnoringModifiers: "",
+                isARepeat: false,
+                keyCode: keyCode
+            ) else { continue }
+            displayView.flagsChanged(with: release)
+        }
+        pressedModifierKeyCodes.removeAll()
+    }
+
     private func handleDelegateState(_ state: MachineRuntimeState) {
         clearVirtualMachine()
         transition(to: state)
@@ -91,6 +169,8 @@ final class MachineRuntime {
     }
 
     private func clearVirtualMachine() {
+        pressedModifierKeyCodes.removeAll()
+        pressedKeyEvents.removeAll()
         virtualMachine = nil
         virtualMachineDelegate = nil
     }
