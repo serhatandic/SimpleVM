@@ -47,10 +47,14 @@ struct LibraryView: View {
                 pendingImport: pendingImport,
                 onImport: { architecture in
                     Task {
-                        await model.importISO(
-                            from: pendingImport.url,
-                            architecture: architecture
-                        )
+                        do {
+                            _ = try await model.importISO(
+                                from: pendingImport.url,
+                                architecture: architecture
+                            )
+                        } catch {
+                            model.present(error: error)
+                        }
                     }
                     self.pendingImport = nil
                 },

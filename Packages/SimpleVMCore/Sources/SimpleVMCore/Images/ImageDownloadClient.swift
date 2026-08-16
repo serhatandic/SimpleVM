@@ -73,10 +73,6 @@ public final class ImageDownloadClient:
         super.init()
     }
 
-    deinit {
-        session.invalidateAndCancel()
-    }
-
     public func download(
         from remoteURL: URL,
         to destinationURL: URL,

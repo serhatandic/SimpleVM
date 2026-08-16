@@ -63,4 +63,20 @@ public actor ManagedImageStore {
             try fileManager.removeItem(at: directory)
         }
     }
+
+    public func removeOrphanedImages(referencedIDs: Set<UUID>) throws {
+        try layout.initialize(fileManager: fileManager)
+        let directories = try fileManager.contentsOfDirectory(
+            at: layout.imagesURL,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+        for directory in directories {
+            guard let id = UUID(uuidString: directory.lastPathComponent),
+                  !referencedIDs.contains(id) else {
+                continue
+            }
+            try fileManager.removeItem(at: directory)
+        }
+    }
 }

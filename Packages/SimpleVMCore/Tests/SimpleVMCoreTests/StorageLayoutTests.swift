@@ -90,3 +90,52 @@ func resolvesOnlyManagedRelativePaths() throws {
         try layout.resolve(relativePath: "../outside.iso")
     }
 }
+
+@Test
+func removesOnlyUnreferencedManagedDirectories() async throws {
+    let rootURL = FileManager.default.temporaryDirectory.appending(
+        path: UUID().uuidString,
+        directoryHint: .isDirectory
+    )
+    defer {
+        try? FileManager.default.removeItem(at: rootURL)
+    }
+    let layout = StorageLayout(rootURL: rootURL)
+    try layout.initialize()
+
+    let referencedImageID = UUID()
+    let orphanedImageID = UUID()
+    let referencedMachineID = UUID()
+    let orphanedMachineID = UUID()
+    for directory in [
+        layout.imagesURL.appending(path: referencedImageID.uuidString),
+        layout.imagesURL.appending(path: orphanedImageID.uuidString),
+        layout.machinesURL.appending(path: referencedMachineID.uuidString),
+        layout.machinesURL.appending(path: orphanedMachineID.uuidString)
+    ] {
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+    }
+
+    try await ManagedImageStore(layout: layout).removeOrphanedImages(
+        referencedIDs: [referencedImageID]
+    )
+    try await ManagedMachineStore(layout: layout).removeOrphanedMachines(
+        referencedIDs: [referencedMachineID]
+    )
+
+    #expect(FileManager.default.fileExists(
+        atPath: layout.imagesURL.appending(path: referencedImageID.uuidString).path
+    ))
+    #expect(!FileManager.default.fileExists(
+        atPath: layout.imagesURL.appending(path: orphanedImageID.uuidString).path
+    ))
+    #expect(FileManager.default.fileExists(
+        atPath: layout.machinesURL.appending(path: referencedMachineID.uuidString).path
+    ))
+    #expect(!FileManager.default.fileExists(
+        atPath: layout.machinesURL.appending(path: orphanedMachineID.uuidString).path
+    ))
+}

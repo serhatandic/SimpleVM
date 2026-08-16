@@ -4,6 +4,7 @@ import SwiftUI
 struct RootView: View {
     @Bindable var model: AppModel
     @State private var selection: SidebarSelection?
+    @State private var presentsNewMachine = false
 
     var body: some View {
         NavigationSplitView {
@@ -16,6 +17,22 @@ struct RootView: View {
         }
         .task {
             await model.initialize()
+        }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    presentsNewMachine = true
+                } label: {
+                    Label("New Machine", systemImage: "plus")
+                }
+                .keyboardShortcut("n", modifiers: .command)
+            }
+        }
+        .sheet(isPresented: $presentsNewMachine) {
+            NewMachineView(model: model) { machineID in
+                selection = .machine(machineID)
+                presentsNewMachine = false
+            }
         }
         .alert("SimpleVM", isPresented: errorBinding) {
             Button("OK") {
@@ -34,14 +51,18 @@ struct RootView: View {
             switch selection {
             case .machine(let id):
                 if let machine = model.machines.first(where: { $0.id == id }) {
-                    MachineDetailView(machine: machine)
+                    MachineDetailView(model: model, machine: machine)
                 } else {
-                    MachineEmptyView()
+                    MachineEmptyView {
+                        presentsNewMachine = true
+                    }
                 }
             case .library:
                 LibraryView(model: model)
             case nil:
-                MachineEmptyView()
+                MachineEmptyView {
+                    presentsNewMachine = true
+                }
             }
         }
     }
