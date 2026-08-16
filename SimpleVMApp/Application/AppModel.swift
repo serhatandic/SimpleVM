@@ -14,6 +14,8 @@ final class AppModel {
     private(set) var machines: [Machine] = []
     private(set) var images: [MachineImage] = []
     private(set) var catalog: [ImageCatalogEntry] = []
+    private(set) var bootProfiles: [LinuxBootProfile] = []
+    private(set) var snapshots: [UUID: [MachineSnapshot]] = [:]
     private(set) var storageURL: URL?
     private(set) var isLoading = true
     private(set) var errorMessage: String?
@@ -28,6 +30,9 @@ final class AppModel {
     private var machineStore: ManagedMachineStore?
 
     @ObservationIgnored
+    private var snapshotStore: SnapshotStore?
+
+    @ObservationIgnored
     private var layout: StorageLayout?
 
     @ObservationIgnored
@@ -37,7 +42,10 @@ final class AppModel {
     private var downloads: [UUID: Task<Void, Never>] = [:]
 
     @ObservationIgnored
-    private var runtimes: [UUID: MachineRuntime] = [:]
+    private var appleRuntimes: [UUID: MachineRuntime] = [:]
+
+    @ObservationIgnored
+    private var qemuRuntimes: [UUID: QEMUMachineRuntime] = [:]
 
     @ObservationIgnored
     private let storageRootURL: URL?
@@ -66,6 +74,7 @@ final class AppModel {
             let snapshot = try await store.load()
             let imageStore = ManagedImageStore(layout: layout)
             let machineStore = ManagedMachineStore(layout: layout)
+            let snapshotStore = SnapshotStore(layout: layout)
             try await imageStore.removeOrphanedImages(
                 referencedIDs: Set(snapshot.images.map(\.id))
             )
@@ -75,6 +84,7 @@ final class AppModel {
             self.store = store
             self.imageStore = imageStore
             self.machineStore = machineStore
+            self.snapshotStore = snapshotStore
             self.layout = layout
             storageURL = layout.rootURL
             machines = snapshot.machines.map { machine in
@@ -106,6 +116,12 @@ final class AppModel {
                     ?? .failed(message: "The machine’s source image is missing.")
             }
             catalog = try ImageCatalog.bundled()
+            bootProfiles = try LinuxBootProfileCatalog.bundled()
+            for machine in machines {
+                snapshots[machine.id] = try await snapshotStore.list(
+                    machineID: machine.id
+                )
+            }
             if images != snapshot.images || machines != snapshot.machines {
                 try await persist()
             }
@@ -124,6 +140,18 @@ final class AppModel {
     func importISO(
         from sourceURL: URL,
         architecture: GuestArchitecture
+    ) async throws -> UUID {
+        try await importImage(
+            from: sourceURL,
+            architecture: architecture,
+            artifactKind: .installerISO
+        )
+    }
+
+    func importImage(
+        from sourceURL: URL,
+        architecture: GuestArchitecture,
+        artifactKind: ImageArtifactKind
     ) async throws -> UUID {
         guard let imageStore, let layout else {
             throw AppModelError.notInitialized
@@ -146,7 +174,7 @@ final class AppModel {
                 id: imageID,
                 name: sourceURL.deletingPathExtension().lastPathComponent,
                 architecture: architecture,
-                artifactKind: .installerISO,
+                artifactKind: artifactKind,
                 origin: .localImport(originalFileName: sourceURL.lastPathComponent),
                 sha256: sha256,
                 sizeBytes: sizeBytes,
@@ -161,6 +189,28 @@ final class AppModel {
             try? await imageStore.removeImage(id: imageID)
             throw error
         }
+    }
+
+    func addOCIReference(
+        _ reference: String,
+        architecture: GuestArchitecture
+    ) async throws -> UUID {
+        let trimmed = reference.trimmingCharacters(
+            in: .whitespacesAndNewlines
+        )
+        guard !trimmed.isEmpty else {
+            throw AppModelError.invalidOCIReference
+        }
+        let image = MachineImage(
+            name: trimmed,
+            architecture: architecture,
+            artifactKind: .ociReference,
+            origin: .oci(trimmed),
+            availability: .remote
+        )
+        images.append(image)
+        try await persist()
+        return image.id
     }
 
     @discardableResult
@@ -283,9 +333,12 @@ final class AppModel {
         memorySizeBytes: UInt64,
         diskSizeBytes: UInt64,
         source: MachineCreationSource,
-        sharedDirectoryPath: String?
+        sharedDirectoryPath: String?,
+        rosettaEnabled: Bool = false,
+        bootProfileID: String? = nil,
+        portForwards: [PortForward] = []
     ) async throws -> UUID {
-        guard let machineStore else {
+        guard let machineStore, let layout else {
             throw AppModelError.notInitialized
         }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -306,6 +359,9 @@ final class AppModel {
         guard allowedMemorySizes.contains(memorySizeBytes) else {
             throw AppleConfigurationError.invalidMemorySize
         }
+        for forward in portForwards {
+            try PortForwardValidator.validate(forward)
+        }
 
         let imageID: UUID
         switch source {
@@ -322,16 +378,77 @@ final class AppModel {
         guard let image = images.first(where: { $0.id == imageID }) else {
             throw AppModelError.imageUnavailable
         }
-        guard image.architecture == .arm64 else {
-            throw AppModelError.compatibilityBackendUnavailable
-        }
-
         let machineID = UUID()
-        let (disk, backendState) = try await machineStore.createFiles(
+        let backend: VirtualizationBackendKind = image.architecture == .arm64
+            ? .appleVirtualization
+            : .qemu
+        let baseDiskURL: URL?
+        if image.artifactKind == .preinstalledDisk {
+            baseDiskURL = try image.availableURL(layout: layout)
+        } else {
+            baseDiskURL = nil
+        }
+        var (disk, backendState) = try await machineStore.createFiles(
             machineID: machineID,
-            diskCapacityBytes: diskSizeBytes
+            diskCapacityBytes: diskSizeBytes,
+            backend: backend,
+            baseDiskURL: baseDiskURL
         )
-        let machine = Machine(
+        do {
+            let diskURL = try layout.resolve(relativePath: disk.relativePath)
+            let backendStateURL = try layout.resolve(
+                relativePath: backendState.relativeDirectory
+            )
+            if image.artifactKind == .rootfsArchive
+                || image.artifactKind == .ociReference {
+            guard let bootProfile = bootProfiles.first(where: {
+                $0.id == bootProfileID
+            }), bootProfile.architecture == image.architecture else {
+                throw LinuxBootProfileError.incompatibleArchitecture
+            }
+            let helper = try ProvisioningHelperClient.discover()
+            try FileManager.default.removeItem(at: diskURL)
+            switch image.artifactKind {
+            case .rootfsArchive:
+                let archiveURL = try image.availableURL(layout: layout)
+                try await helper.provisionRootFS(
+                    archiveURL: archiveURL,
+                    diskURL: diskURL,
+                    capacityBytes: diskSizeBytes,
+                    compression: archiveURL.pathExtension == "gz"
+                        ? "gzip"
+                        : "none"
+                )
+            case .ociReference:
+                guard case .oci(let reference) = image.origin else {
+                    throw AppModelError.invalidOCIReference
+                }
+                try await helper.provision(
+                    reference: reference,
+                    contentStoreURL: layout.downloadsURL.appending(
+                        path: "OCI",
+                        directoryHint: .isDirectory
+                    ),
+                    diskURL: diskURL,
+                    capacityBytes: diskSizeBytes,
+                    architecture: image.architecture
+                )
+            default:
+                break
+            }
+                try await prepare(
+                    bootProfile: bootProfile,
+                    helper: helper,
+                    backendStateURL: backendStateURL
+                )
+                let attributes = try FileManager.default.attributesOfItem(
+                    atPath: diskURL.path
+                )
+                disk.capacityBytes =
+                    (attributes[.size] as? NSNumber)?.uint64Value
+                    ?? disk.capacityBytes
+            }
+            let machine = Machine(
             id: machineID,
             name: trimmedName,
             spec: MachineSpec(
@@ -339,29 +456,79 @@ final class AppModel {
                 memorySizeBytes: memorySizeBytes,
                 diskSizeBytes: disk.capacityBytes,
                 architecture: image.architecture,
-                sharedDirectoryPath: sharedDirectoryPath
+                sharedDirectoryPath: sharedDirectoryPath,
+                rosettaEnabled: rosettaEnabled,
+                portForwards: portForwards
             ),
             sourceImageID: imageID,
             disk: disk,
-            provisioningState: image.availability.provisioningState,
-            bootMedia: .installer(imageID: imageID),
-            backend: .appleVirtualization,
+            provisioningState: image.artifactKind == .preinstalledDisk
+                || image.artifactKind == .rootfsArchive
+                || image.artifactKind == .ociReference
+                ? .ready
+                : image.availability.provisioningState,
+            bootMedia: image.artifactKind == .preinstalledDisk
+                || image.artifactKind == .rootfsArchive
+                || image.artifactKind == .ociReference
+                ? .systemDisk
+                : .installer(imageID: imageID),
+            backend: backend,
             backendState: backendState
-        )
-        machines.append(machine)
-
-        do {
+            )
+            machines.append(machine)
             try await persist()
+            return machineID
         } catch {
             machines.removeAll { $0.id == machineID }
             try? await machineStore.removeMachine(id: machineID)
             throw error
         }
-        return machineID
     }
 
-    func runtime(for machine: Machine) -> MachineRuntime {
-        if let runtime = runtimes[machine.id] {
+    private func prepare(
+        bootProfile: LinuxBootProfile,
+        helper: ProvisioningHelperClient,
+        backendStateURL: URL
+    ) async throws {
+        let temporaryDirectory = backendStateURL.appending(
+            path: "BootDownload",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: temporaryDirectory,
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: temporaryDirectory) }
+        let wrappedKernelURL = temporaryDirectory.appending(path: "kernel")
+        _ = try await downloader.download(
+            from: bootProfile.kernelURL,
+            to: wrappedKernelURL,
+            expectedSHA256: bootProfile.kernelSHA256
+        ) { _ in }
+        let kernelURL = temporaryDirectory.appending(path: "Image")
+        try helper.extractKernel(from: wrappedKernelURL, to: kernelURL)
+
+        var initialRamdiskURL: URL?
+        if let remoteURL = bootProfile.initialRamdiskURL,
+           let checksum = bootProfile.initialRamdiskSHA256 {
+            let localURL = temporaryDirectory.appending(path: "initrd")
+            _ = try await downloader.download(
+                from: remoteURL,
+                to: localURL,
+                expectedSHA256: checksum
+            ) { _ in }
+            initialRamdiskURL = localURL
+        }
+        try AppleLinuxBootAssets.install(
+            kernelURL: kernelURL,
+            initialRamdiskURL: initialRamdiskURL,
+            commandLine: bootProfile.commandLine,
+            backendStateURL: backendStateURL
+        )
+    }
+
+    func appleRuntime(for machine: Machine) -> MachineRuntime {
+        if let runtime = appleRuntimes[machine.id] {
             return runtime
         }
 
@@ -372,13 +539,39 @@ final class AppModel {
         runtime.errorHandler = { [weak self] error in
             self?.present(error: error)
         }
-        runtimes[machine.id] = runtime
+        appleRuntimes[machine.id] = runtime
         return runtime
     }
 
+    func qemuRuntime(for machine: Machine) -> QEMUMachineRuntime {
+        if let runtime = qemuRuntimes[machine.id] {
+            return runtime
+        }
+        let runtime = QEMUMachineRuntime(state: machine.runtimeState)
+        runtime.stateHandler = { [weak self] state in
+            self?.record(runtimeState: state, machineID: machine.id)
+        }
+        runtime.errorHandler = { [weak self] error in
+            self?.present(error: error)
+        }
+        qemuRuntimes[machine.id] = runtime
+        return runtime
+    }
+
+    func runtimeState(for machine: Machine) -> MachineRuntimeState {
+        switch machine.backend {
+        case .appleVirtualization:
+            appleRuntime(for: machine).state
+        case .qemu:
+            qemuRuntime(for: machine).state
+        }
+    }
+
     var hasActiveMachines: Bool {
-        runtimes.values.contains {
-            switch $0.state {
+        let states = appleRuntimes.values.map(\.state)
+            + qemuRuntimes.values.map(\.state)
+        return states.contains {
+            switch $0 {
             case .starting, .running, .stopping:
                 true
             case .stopped, .failed:
@@ -388,7 +581,7 @@ final class AppModel {
     }
 
     func stopAllMachines() async {
-        for runtime in runtimes.values {
+        for runtime in appleRuntimes.values {
             if runtime.state == .starting {
                 for _ in 0..<100 where runtime.state == .starting {
                     try? await Task.sleep(for: .milliseconds(100))
@@ -398,6 +591,19 @@ final class AppModel {
             case .running, .stopping:
                 await runtime.forceStop()
             case .stopped, .starting, .failed:
+                break
+            }
+        }
+        for runtime in qemuRuntimes.values {
+            if runtime.state == .starting {
+                for _ in 0..<100 where runtime.state == .starting {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+            }
+            switch runtime.state {
+            case .starting, .running, .stopping:
+                await runtime.forceStop()
+            case .stopped, .failed:
                 break
             }
         }
@@ -422,34 +628,59 @@ final class AppModel {
                 installerURL = nil
             }
 
-            let configuration = try AppleVirtualMachineConfigurationFactory.make(
-                machine: machine,
-                diskURL: files.diskURL,
-                installerURL: installerURL,
-                backendStateURL: files.backendStateURL
-            )
             if machine.provisioningState == .readyToInstall {
                 updateMachine(id: machine.id) {
                     $0.provisioningState = .installing
                 }
             }
-            await runtime(for: machine).start(configuration: configuration)
+            switch machine.backend {
+            case .appleVirtualization:
+                if machine.spec.rosettaEnabled {
+                    try await AppleRosettaSupport.ensureInstalled()
+                }
+                let configuration =
+                    try AppleVirtualMachineConfigurationFactory.make(
+                        machine: machine,
+                        diskURL: files.diskURL,
+                        installerURL: installerURL,
+                        backendStateURL: files.backendStateURL
+                    )
+                await appleRuntime(for: machine).start(
+                    configuration: configuration
+                )
+            case .qemu:
+                await qemuRuntime(for: machine).start(
+                    machine: machine,
+                    diskURL: files.diskURL,
+                    installerURL: installerURL,
+                    backendStateURL: files.backendStateURL
+                )
+            }
         } catch {
             present(error: error)
         }
     }
 
-    func requestStop(_ machine: Machine) {
-        runtime(for: machine).requestStop()
+    func requestStop(_ machine: Machine) async {
+        switch machine.backend {
+        case .appleVirtualization:
+            appleRuntime(for: machine).requestStop()
+        case .qemu:
+            await qemuRuntime(for: machine).stop()
+        }
     }
 
     func forceStop(_ machine: Machine) async {
-        await runtime(for: machine).forceStop()
+        switch machine.backend {
+        case .appleVirtualization:
+            await appleRuntime(for: machine).forceStop()
+        case .qemu:
+            await qemuRuntime(for: machine).forceStop()
+        }
     }
 
     func ejectInstaller(_ machine: Machine) async {
-        let runtime = runtime(for: machine)
-        guard runtime.state == .stopped else {
+        guard runtimeState(for: machine) == .stopped else {
             present(error: AppModelError.machineMustBeStopped)
             return
         }
@@ -465,7 +696,7 @@ final class AppModel {
             present(error: AppModelError.notInitialized)
             return
         }
-        guard runtime(for: machine).state == .stopped else {
+        guard runtimeState(for: machine) == .stopped else {
             present(error: AppModelError.machineMustBeStopped)
             return
         }
@@ -473,9 +704,104 @@ final class AppModel {
         do {
             try await machineStore.removeMachine(id: machine.id)
             machines.removeAll { $0.id == machine.id }
-            runtimes[machine.id] = nil
+            appleRuntimes[machine.id] = nil
+            qemuRuntimes[machine.id] = nil
             try await persist()
         } catch {
+            present(error: error)
+        }
+    }
+
+    func createSnapshot(_ machine: Machine) async {
+        guard let snapshotStore else {
+            present(error: AppModelError.notInitialized)
+            return
+        }
+        guard runtimeState(for: machine) == .stopped else {
+            present(error: AppModelError.machineMustBeStopped)
+            return
+        }
+        do {
+            let snapshot = try await snapshotStore.create(
+                machine: machine,
+                name: Date.now.formatted(
+                    date: .abbreviated,
+                    time: .shortened
+                )
+            )
+            snapshots[machine.id, default: []].append(snapshot)
+        } catch {
+            present(error: error)
+        }
+    }
+
+    func restoreSnapshot(
+        _ snapshot: MachineSnapshot,
+        machine: Machine
+    ) async {
+        guard let snapshotStore else {
+            present(error: AppModelError.notInitialized)
+            return
+        }
+        guard runtimeState(for: machine) == .stopped else {
+            present(error: AppModelError.machineMustBeStopped)
+            return
+        }
+        do {
+            try await snapshotStore.restore(snapshot, machine: machine)
+        } catch {
+            present(error: error)
+        }
+    }
+
+    func deleteSnapshot(
+        _ snapshot: MachineSnapshot,
+        machine: Machine
+    ) async {
+        guard let snapshotStore else {
+            present(error: AppModelError.notInitialized)
+            return
+        }
+        do {
+            try await snapshotStore.delete(snapshot, machineID: machine.id)
+            snapshots[machine.id]?.removeAll { $0.id == snapshot.id }
+        } catch {
+            present(error: error)
+        }
+    }
+
+    func cloneMachine(_ machine: Machine) async {
+        guard let machineStore else {
+            present(error: AppModelError.notInitialized)
+            return
+        }
+        guard runtimeState(for: machine) == .stopped else {
+            present(error: AppModelError.machineMustBeStopped)
+            return
+        }
+        let cloneID = UUID()
+        do {
+            let (disk, backendState) = try await machineStore.cloneFiles(
+                source: machine,
+                destinationID: cloneID
+            )
+            machines.append(
+                Machine(
+                    id: cloneID,
+                    name: "\(machine.name) Copy",
+                    spec: machine.spec,
+                    sourceImageID: machine.sourceImageID,
+                    disk: disk,
+                    provisioningState: machine.provisioningState,
+                    runtimeState: .stopped,
+                    bootMedia: machine.bootMedia,
+                    backend: machine.backend,
+                    backendState: backendState
+                )
+            )
+            try await persist()
+        } catch {
+            try? await machineStore.removeMachine(id: cloneID)
             present(error: error)
         }
     }
@@ -579,9 +905,9 @@ private enum AppModelError: LocalizedError {
     case imageInUse
     case catalogEntryUnavailable
     case imageUnavailable
-    case compatibilityBackendUnavailable
     case missingMachineName
     case machineMustBeStopped
+    case invalidOCIReference
 
     var errorDescription: String? {
         switch self {
@@ -593,12 +919,12 @@ private enum AppModelError: LocalizedError {
             "The catalog entry for this image is no longer available."
         case .imageUnavailable:
             "The selected image is not available."
-        case .compatibilityBackendUnavailable:
-            "x86_64 images require the compatibility backend, which is not available yet."
         case .missingMachineName:
             "Enter a machine name."
         case .machineMustBeStopped:
             "Stop the machine before performing this action."
+        case .invalidOCIReference:
+            "Enter a valid OCI image reference."
         }
     }
 }

@@ -30,7 +30,9 @@ public actor ManagedMachineStore {
 
     public func createFiles(
         machineID: UUID,
-        diskCapacityBytes: UInt64
+        diskCapacityBytes: UInt64,
+        backend: VirtualizationBackendKind,
+        baseDiskURL: URL? = nil
     ) throws -> (MachineDisk, BackendStateReference) {
         try layout.initialize(fileManager: fileManager)
         let directoryURL = layout.machineURL(id: machineID)
@@ -41,13 +43,38 @@ public actor ManagedMachineStore {
 
         do {
             let diskURL = directoryURL.appending(path: "disk.raw")
-            let capacity = try SparseDiskCreator.create(
-                at: diskURL,
-                capacityBytes: diskCapacityBytes,
-                fileManager: fileManager
-            )
+            let capacity: UInt64
+            if let baseDiskURL {
+                try APFSCloneStorage.clone(from: baseDiskURL, to: diskURL)
+                let attributes = try fileManager.attributesOfItem(
+                    atPath: diskURL.path
+                )
+                let sourceSize = (attributes[.size] as? NSNumber)?.uint64Value
+                    ?? 0
+                capacity = max(
+                    sourceSize,
+                    SparseDiskCreator.alignedCapacity(diskCapacityBytes)
+                )
+                if capacity > sourceSize {
+                    let handle = try FileHandle(forWritingTo: diskURL)
+                    defer { try? handle.close() }
+                    try handle.truncate(atOffset: capacity)
+                }
+            } else {
+                capacity = try SparseDiskCreator.create(
+                    at: diskURL,
+                    capacityBytes: diskCapacityBytes,
+                    fileManager: fileManager
+                )
+            }
+            let backendDirectoryName = switch backend {
+            case .appleVirtualization:
+                "Apple"
+            case .qemu:
+                "QEMU"
+            }
             let backendStateURL = directoryURL.appending(
-                path: "Apple",
+                path: backendDirectoryName,
                 directoryHint: .isDirectory
             )
             try fileManager.createDirectory(
@@ -92,6 +119,46 @@ public actor ManagedMachineStore {
         let directoryURL = layout.machineURL(id: id)
         if fileManager.fileExists(atPath: directoryURL.path) {
             try fileManager.removeItem(at: directoryURL)
+        }
+    }
+
+    public func cloneFiles(
+        source: Machine,
+        destinationID: UUID
+    ) throws -> (MachineDisk, BackendStateReference) {
+        let sourceLocations = try resolveFiles(for: source)
+        let result = try createFiles(
+            machineID: destinationID,
+            diskCapacityBytes: source.disk.capacityBytes,
+            backend: source.backend,
+            baseDiskURL: sourceLocations.diskURL
+        )
+        copyFirmwareState(
+            sourceDirectory: sourceLocations.backendStateURL,
+            destinationDirectory: try layout.resolve(
+                relativePath: result.1.relativeDirectory
+            )
+        )
+        return result
+    }
+
+    private func copyFirmwareState(
+        sourceDirectory: URL,
+        destinationDirectory: URL
+    ) {
+        for fileName in [
+            "efi-variable-store",
+            "efi-vars.fd",
+            AppleLinuxBootAssets.kernelFileName,
+            AppleLinuxBootAssets.initialRamdiskFileName,
+            AppleLinuxBootAssets.commandLineFileName
+        ] {
+            let sourceURL = sourceDirectory.appending(path: fileName)
+            let destinationURL = destinationDirectory.appending(path: fileName)
+            guard fileManager.fileExists(atPath: sourceURL.path) else {
+                continue
+            }
+            try? fileManager.copyItem(at: sourceURL, to: destinationURL)
         }
     }
 

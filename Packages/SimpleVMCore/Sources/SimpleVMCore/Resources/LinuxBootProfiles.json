@@ -1,0 +1,12 @@
+[
+  {
+    "id": "alpine-3.24-lts-arm64",
+    "name": "Alpine Linux 3.24 LTS Kernel",
+    "architecture": "arm64",
+    "kernelURL": "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/netboot-3.24.1/vmlinuz-lts",
+    "kernelSHA256": "b08be505e51076d32cbdcabc18b0d1a6a46737f2fbcc90e0827d93b890e995cb",
+    "initialRamdiskURL": "https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/netboot-3.24.1/initramfs-lts",
+    "initialRamdiskSHA256": "b8e559693ca155f2369272a3ffe893240e9a3d8ca9e34beebf036c44f912e6b5",
+    "commandLine": "console=hvc0 root=/dev/vda rw"
+  }
+]

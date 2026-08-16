@@ -14,8 +14,11 @@ struct NewMachineView: View {
     @State private var diskGiB = 64
     @State private var source: MachineCreationSource?
     @State private var sharedDirectoryPath: String?
-    @State private var importsISO = false
-    @State private var choosesSharedDirectory = false
+    @State private var rosettaEnabled = false
+    @State private var bootProfileID: String?
+    @State private var enablesPortForward = false
+    @State private var hostPort = 8_080
+    @State private var guestPort = 80
     @State private var pendingISO: PendingLocalISO?
     @State private var isImporting = false
     @State private var isCreating = false
@@ -36,6 +39,40 @@ struct NewMachineView: View {
                 sourceSection
                 configurationSection
                 sharedDirectorySection
+                if selectedArchitecture == .arm64 {
+                    Section("Compatibility") {
+                        Toggle(
+                            "Enable Rosetta for Intel Linux binaries",
+                            isOn: $rosettaEnabled
+                        )
+                    }
+                    if needsBootProfile {
+                        Section("Linux Boot Profile") {
+                            Picker("Kernel profile", selection: $bootProfileID) {
+                                ForEach(compatibleBootProfiles) { profile in
+                                    Text(profile.name).tag(String?.some(profile.id))
+                                }
+                            }
+                        }
+                    }
+                }
+                if selectedArchitecture == .x86_64 {
+                    Section("Networking") {
+                        Toggle("Forward a TCP port", isOn: $enablesPortForward)
+                        if enablesPortForward {
+                            TextField(
+                                "Host port",
+                                value: $hostPort,
+                                format: .number
+                            )
+                            TextField(
+                                "Guest port",
+                                value: $guestPort,
+                                format: .number
+                            )
+                        }
+                    }
+                }
             }
             .formStyle(.grouped)
 
@@ -66,22 +103,6 @@ struct NewMachineView: View {
         .onAppear {
             selectInitialSource()
         }
-        .fileImporter(
-            isPresented: $importsISO,
-            allowedContentTypes: [UTType(filenameExtension: "iso") ?? .data],
-            allowsMultipleSelection: false
-        ) { result in
-            inspectLocalISO(result)
-        }
-        .fileImporter(
-            isPresented: $choosesSharedDirectory,
-            allowedContentTypes: [.folder],
-            allowsMultipleSelection: false
-        ) { result in
-            if case .success(let urls) = result {
-                sharedDirectoryPath = urls.first?.path(percentEncoded: false)
-            }
-        }
     }
 
     private var sourceSection: some View {
@@ -108,7 +129,13 @@ struct NewMachineView: View {
             }
 
             Button("Import Local ISO…") {
-                importsISO = true
+                if let url = FilePicker.chooseFile(
+                    allowedContentTypes: [
+                        UTType(filenameExtension: "iso") ?? .data
+                    ]
+                ) {
+                    inspectLocalISO(url)
+                }
             }
 
             if let pendingISO {
@@ -164,7 +191,8 @@ struct NewMachineView: View {
                 )
                     .foregroundStyle(.secondary)
                 Button("Choose…") {
-                    choosesSharedDirectory = true
+                    sharedDirectoryPath = FilePicker.chooseDirectory()?
+                        .path(percentEncoded: false)
                 }
             }
         }
@@ -172,7 +200,35 @@ struct NewMachineView: View {
 
     private var availableImages: [MachineImage] {
         model.images.filter {
-            $0.architecture == .arm64 && $0.availability.isAvailable
+            $0.availability.isAvailable
+                || $0.artifactKind == .ociReference
+        }
+    }
+
+    private var selectedImage: MachineImage? {
+        guard case .managedImage(let id) = source else { return nil }
+        return model.images.first { $0.id == id }
+    }
+
+    private var needsBootProfile: Bool {
+        selectedImage?.artifactKind == .rootfsArchive
+            || selectedImage?.artifactKind == .ociReference
+    }
+
+    private var compatibleBootProfiles: [LinuxBootProfile] {
+        model.bootProfiles.filter {
+            $0.architecture == selectedArchitecture
+        }
+    }
+
+    private var selectedArchitecture: GuestArchitecture? {
+        switch source {
+        case .managedImage(let id):
+            model.images.first(where: { $0.id == id })?.architecture
+        case .catalogEntry(let id):
+            model.catalog.first(where: { $0.id == id })?.architecture
+        case nil:
+            nil
         }
     }
 
@@ -194,13 +250,16 @@ struct NewMachineView: View {
             source = .catalogEntry(entry.id)
             name = entry.name
         }
+        selectInitialBootProfile()
     }
 
-    private func inspectLocalISO(_ result: Result<[URL], any Error>) {
-        guard case .success(let urls) = result, let url = urls.first else {
-            return
+    private func selectInitialBootProfile() {
+        if bootProfileID == nil {
+            bootProfileID = compatibleBootProfiles.first?.id
         }
+    }
 
+    private func inspectLocalISO(_ url: URL) {
         Task {
             do {
                 let detection = try await model.detectArchitecture(at: url)
@@ -258,7 +317,17 @@ struct NewMachineView: View {
                     memorySizeBytes: UInt64(memoryGiB) * 1_024 * 1_024 * 1_024,
                     diskSizeBytes: UInt64(diskGiB) * 1_024 * 1_024 * 1_024,
                     source: source,
-                    sharedDirectoryPath: sharedDirectoryPath
+                    sharedDirectoryPath: sharedDirectoryPath,
+                    rosettaEnabled: rosettaEnabled,
+                    bootProfileID: bootProfileID,
+                    portForwards: enablesPortForward
+                        ? [
+                            PortForward(
+                                hostPort: UInt16(clamping: hostPort),
+                                guestPort: UInt16(clamping: guestPort)
+                            )
+                        ]
+                        : []
                 )
                 onCreated(machineID)
             } catch {

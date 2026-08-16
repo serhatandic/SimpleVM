@@ -7,8 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0CBBA8FF5EDAA1F5B5736835 /* TCPPortForwarder.swift in Sources */ = {isa = PBXBuildFile; fileRef = D872E56BAD09218EDACF6C1B /* TCPPortForwarder.swift */; };
 		15654EF61E6FC2498825FDC8 /* MachineRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = A51018C6C120FAD79979FC93 /* MachineRuntime.swift */; };
+		1CE3E7FC275EBFB5412D809C /* QEMUMachineDisplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 267CD823610747CC49B50478 /* QEMUMachineDisplayView.swift */; };
 		3C1E9AA994561003422080B8 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 746AF525D76C096CB5EBCF74 /* SettingsView.swift */; };
+		540F604F448222C219C101FC /* FilePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB18762CB489CBC5B9CAACFE /* FilePicker.swift */; };
 		5F8915C5582CD37861B19ACE /* NewMachineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 985115328A2DBD84F72F7B4C /* NewMachineView.swift */; };
 		658ADFE96F5C96B18AB2B905 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6CF288BE530F5F2AFC2AEC /* RootView.swift */; };
 		6B49807EED647873B2D4CA56 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE17FB588BAFBDE890297ECF /* SidebarView.swift */; };
@@ -17,11 +20,14 @@
 		A04BC5D803484483321046C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D3C57FAEE82D92275B30667B /* Assets.xcassets */; };
 		A1D441994B601F267BFD24EE /* AppLifecycleDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F28839F625F13DFFBF555EC /* AppLifecycleDelegate.swift */; };
 		A24AB58487D28B09DD450DCC /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD2FBB02FB71E409A7D821C2 /* LibraryView.swift */; };
+		A84556531E6AA0C83BF90944 /* LoopbackPortAllocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7EEECC9AF70ED42593B51C7 /* LoopbackPortAllocator.swift */; };
 		AF2DF78A26F795AE3580E341 /* LaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0DCB98047E5FF0D5E7B40D /* LaunchTests.swift */; };
 		B01AAA137DEC36F98DB948A3 /* SimpleVMCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B4DA1DDD021526302779E3B /* SimpleVMCore */; };
 		BDB9E93688AB2349F1E1C73B /* SimpleVMCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4431965DBEACBD8427BF0413 /* SimpleVMCore */; };
+		CA35A66CE7597FE74FC55417 /* QEMUMachineRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7584A6E0368D9AA54B787B85 /* QEMUMachineRuntime.swift */; };
 		E85D6235650454CD47E7001A /* FoundationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D904C8CFEF1E135E5D9855F /* FoundationTests.swift */; };
 		E8D9AEFFE6C0A80C1760B40B /* MachineEmptyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4508913A70A87CB5FF6A730 /* MachineEmptyView.swift */; };
+		EFB927F13064A5117DF1E5C9 /* AppleGuestAgentTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = B84B5C8E69ADAD9771588F5A /* AppleGuestAgentTransport.swift */; };
 		F169E7A02042CFE4DC3E2457 /* SimpleVMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 196CF9291A01A3300651A1F1 /* SimpleVMApp.swift */; };
 		FA112881CC9C514074BFC9B2 /* MachineDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5A1CB140D317CF0248162C45 /* MachineDetailView.swift */; };
 /* End PBXBuildFile section */
@@ -48,8 +54,10 @@
 		196CF9291A01A3300651A1F1 /* SimpleVMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleVMApp.swift; sourceTree = "<group>"; };
 		1D904C8CFEF1E135E5D9855F /* FoundationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationTests.swift; sourceTree = "<group>"; };
 		1F28839F625F13DFFBF555EC /* AppLifecycleDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleDelegate.swift; sourceTree = "<group>"; };
+		267CD823610747CC49B50478 /* QEMUMachineDisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QEMUMachineDisplayView.swift; sourceTree = "<group>"; };
 		5A1CB140D317CF0248162C45 /* MachineDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineDetailView.swift; sourceTree = "<group>"; };
 		746AF525D76C096CB5EBCF74 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		7584A6E0368D9AA54B787B85 /* QEMUMachineRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QEMUMachineRuntime.swift; sourceTree = "<group>"; };
 		7F6CF288BE530F5F2AFC2AEC /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		86F6149CE1A73CC0B812B1CE /* MachineDisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineDisplayView.swift; sourceTree = "<group>"; };
 		8772888F8FF4E4B68580A3A3 /* SimpleVM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SimpleVM.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -58,10 +66,14 @@
 		A51018C6C120FAD79979FC93 /* MachineRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineRuntime.swift; sourceTree = "<group>"; };
 		AE0DCB98047E5FF0D5E7B40D /* LaunchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchTests.swift; sourceTree = "<group>"; };
 		AE17FB588BAFBDE890297ECF /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
+		B84B5C8E69ADAD9771588F5A /* AppleGuestAgentTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleGuestAgentTransport.swift; sourceTree = "<group>"; };
 		BD2FBB02FB71E409A7D821C2 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		C7EEECC9AF70ED42593B51C7 /* LoopbackPortAllocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopbackPortAllocator.swift; sourceTree = "<group>"; };
 		D3C57FAEE82D92275B30667B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D505BA5F4159F9F9F8AA155E /* SimpleVMAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SimpleVMAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D640994605252415E8310D95 /* SimpleVMUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SimpleVMUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D872E56BAD09218EDACF6C1B /* TCPPortForwarder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCPPortForwarder.swift; sourceTree = "<group>"; };
+		DB18762CB489CBC5B9CAACFE /* FilePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePicker.swift; sourceTree = "<group>"; };
 		E5C74D1D84F26328E4E21CA4 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -119,6 +131,7 @@
 			children = (
 				1F28839F625F13DFFBF555EC /* AppLifecycleDelegate.swift */,
 				E5C74D1D84F26328E4E21CA4 /* AppModel.swift */,
+				DB18762CB489CBC5B9CAACFE /* FilePicker.swift */,
 				7F6CF288BE530F5F2AFC2AEC /* RootView.swift */,
 			);
 			path = Application;
@@ -142,10 +155,19 @@
 			path = Settings;
 			sourceTree = "<group>";
 		};
+		71A5A7330EFC6FD8442193D8 /* Networking */ = {
+			isa = PBXGroup;
+			children = (
+				D872E56BAD09218EDACF6C1B /* TCPPortForwarder.swift */,
+			);
+			path = Networking;
+			sourceTree = "<group>";
+		};
 		8B22C940DED2906A5BE63CAC /* Display */ = {
 			isa = PBXGroup;
 			children = (
 				86F6149CE1A73CC0B812B1CE /* MachineDisplayView.swift */,
+				267CD823610747CC49B50478 /* QEMUMachineDisplayView.swift */,
 			);
 			path = Display;
 			sourceTree = "<group>";
@@ -153,7 +175,10 @@
 		9BC60EB0B6AD02A2BA3C09E2 /* Virtualization */ = {
 			isa = PBXGroup;
 			children = (
+				B84B5C8E69ADAD9771588F5A /* AppleGuestAgentTransport.swift */,
+				C7EEECC9AF70ED42593B51C7 /* LoopbackPortAllocator.swift */,
 				A51018C6C120FAD79979FC93 /* MachineRuntime.swift */,
+				7584A6E0368D9AA54B787B85 /* QEMUMachineRuntime.swift */,
 			);
 			path = Virtualization;
 			sourceTree = "<group>";
@@ -201,6 +226,7 @@
 				227FE4D072D88E4E77B1FE95 /* Application */,
 				8B22C940DED2906A5BE63CAC /* Display */,
 				3C4F34143BAC484D99CE59C3 /* Features */,
+				71A5A7330EFC6FD8442193D8 /* Networking */,
 				9BC60EB0B6AD02A2BA3C09E2 /* Virtualization */,
 			);
 			path = SimpleVMApp;
@@ -354,16 +380,22 @@
 			files = (
 				A1D441994B601F267BFD24EE /* AppLifecycleDelegate.swift in Sources */,
 				7888B06DC66F25ED5F833C59 /* AppModel.swift in Sources */,
+				EFB927F13064A5117DF1E5C9 /* AppleGuestAgentTransport.swift in Sources */,
+				540F604F448222C219C101FC /* FilePicker.swift in Sources */,
 				A24AB58487D28B09DD450DCC /* LibraryView.swift in Sources */,
+				A84556531E6AA0C83BF90944 /* LoopbackPortAllocator.swift in Sources */,
 				FA112881CC9C514074BFC9B2 /* MachineDetailView.swift in Sources */,
 				7E411FE748C58D183A072BC1 /* MachineDisplayView.swift in Sources */,
 				E8D9AEFFE6C0A80C1760B40B /* MachineEmptyView.swift in Sources */,
 				15654EF61E6FC2498825FDC8 /* MachineRuntime.swift in Sources */,
 				5F8915C5582CD37861B19ACE /* NewMachineView.swift in Sources */,
+				1CE3E7FC275EBFB5412D809C /* QEMUMachineDisplayView.swift in Sources */,
+				CA35A66CE7597FE74FC55417 /* QEMUMachineRuntime.swift in Sources */,
 				658ADFE96F5C96B18AB2B905 /* RootView.swift in Sources */,
 				3C1E9AA994561003422080B8 /* SettingsView.swift in Sources */,
 				6B49807EED647873B2D4CA56 /* SidebarView.swift in Sources */,
 				F169E7A02042CFE4DC3E2457 /* SimpleVMApp.swift in Sources */,
+				0CBBA8FF5EDAA1F5B5736835 /* TCPPortForwarder.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

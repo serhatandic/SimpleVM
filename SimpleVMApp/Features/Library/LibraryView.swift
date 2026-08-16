@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 struct LibraryView: View {
     @Bindable var model: AppModel
-    @State private var importsISO = false
+    @State private var presentsOCI = false
     @State private var pendingImport: PendingISOImport?
     @State private var confirmsRemoval: MachineImage?
 
@@ -17,7 +17,7 @@ struct LibraryView: View {
                     Text("Import an installer ISO or download catalog media.")
                 } actions: {
                     Button("Import ISO…") {
-                        importsISO = true
+                        chooseISO()
                     }
                 }
             } else {
@@ -29,18 +29,31 @@ struct LibraryView: View {
             ToolbarItemGroup {
                 catalogMenu
                 Button {
-                    importsISO = true
+                    chooseISO()
                 } label: {
                     Label("Import ISO", systemImage: "plus")
                 }
+                Button {
+                    chooseDisk()
+                } label: {
+                    Label("Import Disk", systemImage: "externaldrive")
+                }
+                Button {
+                    chooseRootFS()
+                } label: {
+                    Label("Import RootFS", systemImage: "archivebox")
+                }
+                Button {
+                    presentsOCI = true
+                } label: {
+                    Label("Add OCI Reference", systemImage: "shippingbox")
+                }
             }
         }
-        .fileImporter(
-            isPresented: $importsISO,
-            allowedContentTypes: [UTType(filenameExtension: "iso") ?? .data],
-            allowsMultipleSelection: false
-        ) { result in
-            handleImport(result)
+        .sheet(isPresented: $presentsOCI) {
+            OCIImportView(model: model) {
+                presentsOCI = false
+            }
         }
         .sheet(item: $pendingImport) { pendingImport in
             ISOImportView(
@@ -48,13 +61,15 @@ struct LibraryView: View {
                 onImport: { architecture in
                     Task {
                         do {
-                            _ = try await model.importISO(
+                            _ = try await model.importImage(
                                 from: pendingImport.url,
-                                architecture: architecture
+                                architecture: architecture,
+                                artifactKind: pendingImport.artifactKind
                             )
                         } catch {
                             model.present(error: error)
                         }
+
                     }
                     self.pendingImport = nil
                 },
@@ -158,16 +173,53 @@ struct LibraryView: View {
         )
     }
 
-    private func handleImport(_ result: Result<[URL], any Error>) {
-        guard case .success(let urls) = result, let url = urls.first else {
-            return
-        }
-
+    private func handleISO(_ url: URL) {
         Task {
             let detection = try? await model.detectArchitecture(at: url)
             pendingImport = PendingISOImport(
                 url: url,
-                detection: detection ?? .unknown
+                detection: detection ?? .unknown,
+                artifactKind: .installerISO
+            )
+        }
+    }
+
+    private func chooseISO() {
+        if let url = FilePicker.chooseFile(
+            allowedContentTypes: [
+                UTType(filenameExtension: "iso") ?? .data
+            ]
+        ) {
+            handleISO(url)
+        }
+    }
+
+    private func chooseDisk() {
+        if let url = FilePicker.chooseFile(
+            allowedContentTypes: [
+                UTType(filenameExtension: "raw") ?? .data,
+                UTType(filenameExtension: "img") ?? .data
+            ]
+        ) {
+            pendingImport = PendingISOImport(
+                url: url,
+                detection: .unknown,
+                artifactKind: .preinstalledDisk
+            )
+        }
+    }
+
+    private func chooseRootFS() {
+        if let url = FilePicker.chooseFile(
+            allowedContentTypes: [
+                UTType(filenameExtension: "tar") ?? .archive,
+                UTType(filenameExtension: "gz") ?? .gzip
+            ]
+        ) {
+            pendingImport = PendingISOImport(
+                url: url,
+                detection: .unknown,
+                artifactKind: .rootfsArchive
             )
         }
     }
@@ -177,6 +229,7 @@ private struct PendingISOImport: Identifiable {
     let id = UUID()
     let url: URL
     let detection: ISOArchitectureDetection
+    var artifactKind: ImageArtifactKind = .installerISO
 }
 
 private struct ISOImportView: View {
@@ -188,7 +241,11 @@ private struct ISOImportView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text("Import Installer ISO")
+            Text(
+                pendingImport.artifactKind == .installerISO
+                    ? "Import Installer ISO"
+                    : "Import Preinstalled Disk"
+            )
                 .font(.title2.weight(.semibold))
             LabeledContent("File", value: pendingImport.url.lastPathComponent)
             Picker("Architecture", selection: $architecture) {
@@ -259,5 +316,52 @@ private extension MachineImage {
             fromByteCount: sizeBytes,
             countStyle: .file
         )
+    }
+}
+
+private struct OCIImportView: View {
+    @Bindable var model: AppModel
+    let onDismiss: () -> Void
+
+    @State private var reference = "docker.io/library/alpine:latest"
+    @State private var architecture = GuestArchitecture.arm64
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("Add OCI Image")
+                .font(.title2.weight(.semibold))
+            TextField("Image reference", text: $reference)
+            Picker("Architecture", selection: $architecture) {
+                ForEach(GuestArchitecture.allCases, id: \.self) {
+                    Text($0.displayName).tag($0)
+                }
+            }
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+            }
+            Spacer()
+            HStack {
+                Spacer()
+                Button("Cancel", role: .cancel, action: onDismiss)
+                Button("Add") {
+                    Task {
+                        do {
+                            _ = try await model.addOCIReference(
+                                reference,
+                                architecture: architecture
+                            )
+                            onDismiss()
+                        } catch {
+                            errorMessage = error.localizedDescription
+                        }
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+        .padding(24)
+        .frame(width: 500, height: 240)
     }
 }

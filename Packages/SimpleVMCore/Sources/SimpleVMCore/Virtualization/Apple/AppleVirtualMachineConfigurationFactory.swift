@@ -7,7 +7,8 @@ public enum AppleVirtualMachineConfigurationFactory {
         machine: Machine,
         diskURL: URL,
         installerURL: URL?,
-        backendStateURL: URL
+        backendStateURL: URL,
+        serialOutput: FileHandle? = nil
     ) throws -> VZVirtualMachineConfiguration {
         guard machine.spec.architecture == .arm64 else {
             throw AppleConfigurationError.unsupportedArchitecture
@@ -28,9 +29,20 @@ public enum AppleVirtualMachineConfigurationFactory {
         }
 
         let configuration = VZVirtualMachineConfiguration()
-        configuration.bootLoader = try AppleBackendState.bootLoader(
-            at: backendStateURL
-        )
+        if let linuxBoot = try AppleLinuxBootAssets.load(
+            backendStateURL: backendStateURL
+        ) {
+            let bootLoader = VZLinuxBootLoader(
+                kernelURL: linuxBoot.kernelURL
+            )
+            bootLoader.initialRamdiskURL = linuxBoot.initialRamdiskURL
+            bootLoader.commandLine = linuxBoot.commandLine
+            configuration.bootLoader = bootLoader
+        } else {
+            configuration.bootLoader = try AppleBackendState.bootLoader(
+                at: backendStateURL
+            )
+        }
         configuration.platform = try AppleBackendState.platformConfiguration(
             at: backendStateURL
         )
@@ -72,10 +84,24 @@ public enum AppleVirtualMachineConfigurationFactory {
             VZVirtioTraditionalMemoryBalloonDeviceConfiguration()
         ]
 
+        var directoryShares: [VZDirectorySharingDeviceConfiguration] = []
         if let sharedDirectoryPath = machine.spec.sharedDirectoryPath {
-            configuration.directorySharingDevices = [
+            directoryShares.append(
                 makeDirectoryShare(path: sharedDirectoryPath)
-            ]
+            )
+        }
+        if machine.spec.rosettaEnabled {
+            directoryShares.append(try AppleRosettaSupport.makeDevice())
+        }
+        configuration.directorySharingDevices = directoryShares
+        configuration.socketDevices = [VZVirtioSocketDeviceConfiguration()]
+        if let serialOutput {
+            let serialPort = VZVirtioConsoleDeviceSerialPortConfiguration()
+            serialPort.attachment = VZFileHandleSerialPortAttachment(
+                fileHandleForReading: nil,
+                fileHandleForWriting: serialOutput
+            )
+            configuration.serialPorts = [serialPort]
         }
 
         try configuration.validate()

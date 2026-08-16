@@ -2,6 +2,8 @@ PROJECT := SimpleVM.xcodeproj
 SCHEME := SimpleVM
 DERIVED_DATA := $(CURDIR)/.build/DerivedData
 APP := $(DERIVED_DATA)/Build/Products/Debug/SimpleVM.app
+GIT_SAFE_ENV := GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=safe.bareRepository GIT_CONFIG_VALUE_0=all GIT_CONFIG_KEY_1=credential.interactive GIT_CONFIG_VALUE_1=never
+PROVISIONING_HELPER := $(shell $(GIT_SAFE_ENV) swift build --package-path Tools/ProvisioningHelper --show-bin-path -c release)/SimpleVMProvisioningHelper
 
 .PHONY: project build test run clean
 
@@ -15,6 +17,10 @@ build: project
 		-configuration Debug \
 		-derivedDataPath "$(DERIVED_DATA)" \
 		build
+	$(GIT_SAFE_ENV) swift build --package-path Tools/ProvisioningHelper -c release
+	mkdir -p "$(APP)/Contents/Helpers"
+	cp "$(PROVISIONING_HELPER)" "$(APP)/Contents/Helpers/SimpleVMProvisioningHelper"
+	codesign --force --sign - --options runtime "$(APP)/Contents/Helpers/SimpleVMProvisioningHelper"
 	codesign \
 		--force \
 		--sign - \

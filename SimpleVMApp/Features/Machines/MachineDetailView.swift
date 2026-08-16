@@ -7,8 +7,8 @@ struct MachineDetailView: View {
 
     @State private var confirmsDeletion = false
 
-    private var runtime: MachineRuntime {
-        model.runtime(for: machine)
+    private var runtimeState: MachineRuntimeState {
+        model.runtimeState(for: machine)
     }
 
     var body: some View {
@@ -22,7 +22,7 @@ struct MachineDetailView: View {
             ToolbarItemGroup {
                 lifecycleControls
                 Menu {
-                    if runtime.state == .running || runtime.state == .stopping {
+                    if runtimeState == .running || runtimeState == .stopping {
                         Button("Force Stop", role: .destructive) {
                             Task {
                                 await model.forceStop(machine)
@@ -36,13 +36,50 @@ struct MachineDetailView: View {
                                 await model.ejectInstaller(machine)
                             }
                         }
-                        .disabled(runtime.state != .stopped)
+                        .disabled(runtimeState != .stopped)
+                    }
+                    Button("Create Snapshot") {
+                        Task {
+                            await model.createSnapshot(machine)
+                        }
+                    }
+                    .disabled(runtimeState != .stopped)
+                    Button("Clone Machine") {
+                        Task {
+                            await model.cloneMachine(machine)
+                        }
+                    }
+                    .disabled(runtimeState != .stopped)
+                    if let machineSnapshots = model.snapshots[machine.id],
+                       !machineSnapshots.isEmpty {
+                        Menu("Snapshots") {
+                            ForEach(machineSnapshots) { snapshot in
+                                Menu(snapshot.name) {
+                                    Button("Restore") {
+                                        Task {
+                                            await model.restoreSnapshot(
+                                                snapshot,
+                                                machine: machine
+                                            )
+                                        }
+                                    }
+                                    Button("Delete", role: .destructive) {
+                                        Task {
+                                            await model.deleteSnapshot(
+                                                snapshot,
+                                                machine: machine
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     Divider()
                     Button("Delete Machine", role: .destructive) {
                         confirmsDeletion = true
                     }
-                    .disabled(runtime.state != .stopped)
+                    .disabled(runtimeState != .stopped)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -68,10 +105,25 @@ struct MachineDetailView: View {
     private var display: some View {
         ZStack {
             Color.black
-            if let virtualMachine = runtime.virtualMachine {
-                MachineDisplayView(virtualMachine: virtualMachine)
-            } else {
-                stoppedContent
+            switch machine.backend {
+            case .appleVirtualization:
+                if let virtualMachine = model.appleRuntime(
+                    for: machine
+                ).virtualMachine {
+                    MachineDisplayView(virtualMachine: virtualMachine)
+                } else {
+                    stoppedContent
+                }
+            case .qemu:
+                let runtime = model.qemuRuntime(for: machine)
+                if let framebuffer = runtime.framebuffer {
+                    QEMUMachineDisplayView(
+                        image: framebuffer,
+                        runtime: runtime
+                    )
+                } else {
+                    stoppedContent
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -101,7 +153,7 @@ struct MachineDetailView: View {
 
     private var statusBar: some View {
         HStack(spacing: 28) {
-            StatusValue(title: "Status", value: runtime.state.title)
+            StatusValue(title: "Status", value: runtimeState.title)
             StatusValue(
                 title: "CPU",
                 value: "\(machine.spec.cpuCount) cores"
@@ -130,7 +182,7 @@ struct MachineDetailView: View {
 
     @ViewBuilder
     private var lifecycleControls: some View {
-        switch runtime.state {
+        switch runtimeState {
         case .stopped, .failed:
             Button {
                 Task {
@@ -142,7 +194,9 @@ struct MachineDetailView: View {
             .disabled(!machine.provisioningState.canStart)
         case .running:
             Button {
-                model.requestStop(machine)
+                Task {
+                    await model.requestStop(machine)
+                }
             } label: {
                 Label("Shut Down", systemImage: "stop.fill")
             }

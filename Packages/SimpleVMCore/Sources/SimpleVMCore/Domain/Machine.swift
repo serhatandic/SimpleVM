@@ -6,19 +6,64 @@ public struct MachineSpec: Codable, Hashable, Sendable {
     public var diskSizeBytes: UInt64
     public var architecture: GuestArchitecture
     public var sharedDirectoryPath: String?
+    public var rosettaEnabled: Bool
+    public var portForwards: [PortForward]
 
     public init(
         cpuCount: Int,
         memorySizeBytes: UInt64,
         diskSizeBytes: UInt64,
         architecture: GuestArchitecture,
-        sharedDirectoryPath: String? = nil
+        sharedDirectoryPath: String? = nil,
+        rosettaEnabled: Bool = false,
+        portForwards: [PortForward] = []
     ) {
         self.cpuCount = cpuCount
         self.memorySizeBytes = memorySizeBytes
         self.diskSizeBytes = diskSizeBytes
         self.architecture = architecture
         self.sharedDirectoryPath = sharedDirectoryPath
+        self.rosettaEnabled = rosettaEnabled
+        self.portForwards = portForwards
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case cpuCount
+        case memorySizeBytes
+        case diskSizeBytes
+        case architecture
+        case sharedDirectoryPath
+        case rosettaEnabled
+        case portForwards
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        cpuCount = try container.decode(Int.self, forKey: .cpuCount)
+        memorySizeBytes = try container.decode(
+            UInt64.self,
+            forKey: .memorySizeBytes
+        )
+        diskSizeBytes = try container.decode(
+            UInt64.self,
+            forKey: .diskSizeBytes
+        )
+        architecture = try container.decode(
+            GuestArchitecture.self,
+            forKey: .architecture
+        )
+        sharedDirectoryPath = try container.decodeIfPresent(
+            String.self,
+            forKey: .sharedDirectoryPath
+        )
+        rosettaEnabled = try container.decodeIfPresent(
+            Bool.self,
+            forKey: .rosettaEnabled
+        ) ?? false
+        portForwards = try container.decodeIfPresent(
+            [PortForward].self,
+            forKey: .portForwards
+        ) ?? []
     }
 }
 
@@ -108,4 +153,3 @@ public struct Machine: Identifiable, Codable, Hashable, Sendable {
         self.createdAt = createdAt
     }
 }
-

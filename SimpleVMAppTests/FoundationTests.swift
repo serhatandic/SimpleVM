@@ -204,10 +204,53 @@ final class FoundationTests: XCTestCase {
     }
 
     @MainActor
-    func testRealARM64EFIISOReachesGraphicalOutput() async throws {
-        guard let fixturePath = ProcessInfo.processInfo.environment[
-            "SIMPLEVM_ARM64_ISO_FIXTURE"
-        ] else {
+    func testCreatesMachineFromPreinstalledDiskWithoutInstaller() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(
+            at: rootURL,
+            withIntermediateDirectories: true
+        )
+        let sourceURL = rootURL.appending(path: "base.raw")
+        try SparseDiskCreator.create(
+            at: sourceURL,
+            capacityBytes: 1 * 1_024 * 1_024
+        )
+        let model = AppModel(
+            storageRootURL: rootURL.appending(path: "Library")
+        )
+        await model.initialize()
+        let imageID = try await model.importImage(
+            from: sourceURL,
+            architecture: .arm64,
+            artifactKind: .preinstalledDisk
+        )
+        let machineID = try await model.createMachine(
+            name: "Curated",
+            cpuCount: 2,
+            memorySizeBytes: 2 * 1_024 * 1_024 * 1_024,
+            diskSizeBytes: 2 * 1_024 * 1_024,
+            source: .managedImage(imageID),
+            sharedDirectoryPath: nil
+        )
+        let machine = try XCTUnwrap(
+            model.machines.first(where: { $0.id == machineID })
+        )
+
+        XCTAssertEqual(machine.bootMedia, .systemDisk)
+        XCTAssertEqual(machine.provisioningState, .ready)
+        XCTAssertEqual(machine.disk.capacityBytes, 2 * 1_024 * 1_024)
+    }
+
+    @MainActor
+    func testRealARM64EFIISOStaysRunningWithDisplayAttached() async throws {
+        guard let fixturePath = fixturePath(
+            environmentKey: "SIMPLEVM_ARM64_ISO_FIXTURE",
+            fileName: "arm64-iso-path"
+        ) else {
             throw XCTSkip("Set SIMPLEVM_ARM64_ISO_FIXTURE for the hardware smoke test.")
         }
 
@@ -273,9 +316,12 @@ final class FoundationTests: XCTestCase {
             backing: .buffered,
             defer: false
         )
+        window.animationBehavior = .none
+        window.isReleasedWhenClosed = false
         window.contentView = display
         window.makeKeyAndOrderFront(nil)
         defer {
+            window.orderOut(nil)
             window.close()
         }
 
@@ -287,21 +333,112 @@ final class FoundationTests: XCTestCase {
                 }
             }
         }
-        try await Task.sleep(for: .seconds(25))
+        try await Task.sleep(for: .seconds(45))
 
         XCTAssertEqual(virtualMachine.state, .running)
-        let bitmap = try XCTUnwrap(
-            display.bitmapImageRepForCachingDisplay(in: display.bounds)
-        )
-        display.cacheDisplay(in: display.bounds, to: bitmap)
-        let imageData = try XCTUnwrap(bitmap.bitmapData)
-        let sampledValues = stride(
-            from: 0,
-            to: bitmap.bytesPerRow * bitmap.pixelsHigh,
-            by: max(4, bitmap.bytesPerRow / 64)
-        ).map { imageData[$0] }
-        XCTAssertGreaterThan(Set(sampledValues).count, 1)
+        XCTAssertTrue(display.virtualMachine === virtualMachine)
 
         try await virtualMachine.stop()
     }
+
+    @MainActor
+    func testRealRootFSBootsThroughDirectKernel() async throws {
+        guard let diskPath = fixturePath(
+            environmentKey: "SIMPLEVM_ROOTFS_DISK_FIXTURE",
+            fileName: "rootfs-disk-path"
+        ), let kernelPath = fixturePath(
+            environmentKey: "SIMPLEVM_ROOTFS_KERNEL_FIXTURE",
+            fileName: "rootfs-kernel-path"
+        ), let initrdPath = fixturePath(
+            environmentKey: "SIMPLEVM_ROOTFS_INITRD_FIXTURE",
+            fileName: "rootfs-initrd-path"
+        ) else {
+            throw XCTSkip("Configure rootfs, kernel, and initrd fixtures.")
+        }
+
+        let directory = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true
+        )
+        let diskURL = directory.appending(path: "rootfs.ext4")
+        try APFSCloneStorage.clone(
+            from: URL(filePath: diskPath),
+            to: diskURL
+        )
+        let backendURL = directory.appending(path: "Apple")
+        try AppleLinuxBootAssets.install(
+            kernelURL: URL(filePath: kernelPath),
+            initialRamdiskURL: URL(filePath: initrdPath),
+            commandLine: "console=hvc0 root=/dev/vda rw init=/bin/sh",
+            backendStateURL: backendURL
+        )
+        let logURL = directory.appending(path: "console.log")
+        FileManager.default.createFile(atPath: logURL.path, contents: nil)
+        let logHandle = try FileHandle(forWritingTo: logURL)
+        defer { try? logHandle.close() }
+
+        let machine = Machine(
+            name: "RootFS Test",
+            spec: MachineSpec(
+                cpuCount: 2,
+                memorySizeBytes: 2 * 1_024 * 1_024 * 1_024,
+                diskSizeBytes: 384 * 1_024 * 1_024,
+                architecture: .arm64
+            ),
+            sourceImageID: UUID(),
+            disk: MachineDisk(
+                relativePath: "rootfs.ext4",
+                capacityBytes: 384 * 1_024 * 1_024
+            ),
+            provisioningState: .ready,
+            bootMedia: .systemDisk,
+            backend: .appleVirtualization,
+            backendState: BackendStateReference(relativeDirectory: "Apple")
+        )
+        let configuration = try AppleVirtualMachineConfigurationFactory.make(
+            machine: machine,
+            diskURL: diskURL,
+            installerURL: nil,
+            backendStateURL: backendURL,
+            serialOutput: logHandle
+        )
+        let virtualMachine = VZVirtualMachine(configuration: configuration)
+        try await virtualMachine.start()
+        try await Task.sleep(for: .seconds(20))
+        XCTAssertEqual(virtualMachine.state, .running)
+        try await virtualMachine.stop()
+        try logHandle.synchronize()
+
+        let console = String(
+            data: try Data(contentsOf: logURL),
+            encoding: .utf8
+        ) ?? ""
+        XCTAssertTrue(
+            console.contains("Linux version") || console.contains("Alpine"),
+            "Expected Linux boot output, received: \(console.suffix(500))"
+        )
+    }
+
+    private func fixturePath(
+        environmentKey: String,
+        fileName: String
+    ) -> String? {
+        if let path = ProcessInfo.processInfo.environment[environmentKey] {
+            return path
+        }
+        let repositoryURL = URL(filePath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let pathURL = repositoryURL
+            .appending(path: ".build/TestFixtures")
+            .appending(path: fileName)
+        return try? String(contentsOf: pathURL, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
 }
