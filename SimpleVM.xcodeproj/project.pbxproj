@@ -15,6 +15,7 @@
 		5F8915C5582CD37861B19ACE /* NewMachineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 985115328A2DBD84F72F7B4C /* NewMachineView.swift */; };
 		658ADFE96F5C96B18AB2B905 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6CF288BE530F5F2AFC2AEC /* RootView.swift */; };
 		6B49807EED647873B2D4CA56 /* SidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE17FB588BAFBDE890297ECF /* SidebarView.swift */; };
+		6B86D7566374617B23B05B88 /* KarabinerInputBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = E0ADC12DEFE4931F54E578EC /* KarabinerInputBridge.swift */; };
 		7888B06DC66F25ED5F833C59 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C74D1D84F26328E4E21CA4 /* AppModel.swift */; };
 		7E411FE748C58D183A072BC1 /* MachineDisplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86F6149CE1A73CC0B812B1CE /* MachineDisplayView.swift */; };
 		813E606F254FE1337BEBA76D /* ImmersiveInputCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0978157F9E13C59E91E0BF2F /* ImmersiveInputCapture.swift */; };
@@ -80,6 +81,7 @@
 		D640994605252415E8310D95 /* SimpleVMUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SimpleVMUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D872E56BAD09218EDACF6C1B /* TCPPortForwarder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCPPortForwarder.swift; sourceTree = "<group>"; };
 		DB18762CB489CBC5B9CAACFE /* FilePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePicker.swift; sourceTree = "<group>"; };
+		E0ADC12DEFE4931F54E578EC /* KarabinerInputBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KarabinerInputBridge.swift; sourceTree = "<group>"; };
 		E5C74D1D84F26328E4E21CA4 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -244,6 +246,7 @@
 			isa = PBXGroup;
 			children = (
 				0978157F9E13C59E91E0BF2F /* ImmersiveInputCapture.swift */,
+				E0ADC12DEFE4931F54E578EC /* KarabinerInputBridge.swift */,
 				A118B3525D21D3B293C0492A /* KeyboardMappingSettings.swift */,
 			);
 			path = Input;
@@ -404,6 +407,7 @@
 				540F604F448222C219C101FC /* FilePicker.swift in Sources */,
 				E42B12C82D5D53828403D4CE /* ImmersionController.swift in Sources */,
 				813E606F254FE1337BEBA76D /* ImmersiveInputCapture.swift in Sources */,
+				6B86D7566374617B23B05B88 /* KarabinerInputBridge.swift in Sources */,
 				A59D789DF86E4DB11A121332 /* KeyboardMappingSettings.swift in Sources */,
 				A24AB58487D28B09DD450DCC /* LibraryView.swift in Sources */,
 				A84556531E6AA0C83BF90944 /* LoopbackPortAllocator.swift in Sources */,

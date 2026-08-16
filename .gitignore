@@ -7,6 +7,9 @@ xcuserdata/
 *.xccheckout
 *.xcscmblueprint
 
+# Benchmark overlays, captures, and results are machine-local.
+Tools/Benchmarks/.bench/
+
 # VM artifacts never belong in source control.
 *.iso
 *.img

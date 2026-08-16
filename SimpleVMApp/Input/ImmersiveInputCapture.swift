@@ -18,6 +18,7 @@ final class ImmersiveInputCapture {
     private static let gestureCancelled: Int64 = 8
 
     private let workspaceSwipeHandler: (WorkspaceSwipeDirection) -> Void
+    private let usesNativeKeyboardMapping: Bool
     private let router: GuestInputRouter
     private var tap: CFMachPort?
     private var runLoopSource: CFRunLoopSource?
@@ -27,9 +28,11 @@ final class ImmersiveInputCapture {
 
     init(
         keyEventHandler: @escaping (GuestKeyEvent) -> Void,
-        workspaceSwipeHandler: @escaping (WorkspaceSwipeDirection) -> Void
+        workspaceSwipeHandler: @escaping (WorkspaceSwipeDirection) -> Void,
+        usesNativeKeyboardMapping: Bool
     ) {
         self.workspaceSwipeHandler = workspaceSwipeHandler
+        self.usesNativeKeyboardMapping = usesNativeKeyboardMapping
         router = GuestInputRouter(keyEventHandler: keyEventHandler)
     }
 
@@ -163,6 +166,9 @@ final class ImmersiveInputCapture {
         }
         switch type {
         case .flagsChanged:
+            if usesNativeKeyboardMapping {
+                return Unmanaged.passUnretained(event)
+            }
             router.updateHostModifiers(
                 modifierFlags(from: event.flags)
             )
@@ -180,6 +186,9 @@ final class ImmersiveInputCapture {
                 )
                 return nil
             }
+            if usesNativeKeyboardMapping {
+                return Unmanaged.passUnretained(event)
+            }
             let repeats = event.getIntegerValueField(
                 .keyboardEventAutorepeat
             ) != 0
@@ -194,6 +203,9 @@ final class ImmersiveInputCapture {
             )
             return nil
         case .keyUp:
+            if usesNativeKeyboardMapping {
+                return Unmanaged.passUnretained(event)
+            }
             let keyCode = UInt16(clamping: event.getIntegerValueField(
                 .keyboardEventKeycode
             ))

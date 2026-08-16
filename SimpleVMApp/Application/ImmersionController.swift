@@ -9,6 +9,7 @@ final class ImmersionController {
     private(set) var activeMachineID: UUID?
     private(set) var showsExitHint = false
     private(set) var requiresAccessibilityPermission = false
+    private(set) var karabinerErrorMessage: String?
 
     @ObservationIgnored
     private weak var window: NSWindow?
@@ -40,7 +41,8 @@ final class ImmersionController {
     func enter(
         machineID: UUID,
         keyEventHandler: @escaping (GuestKeyEvent) -> Void,
-        releaseKeysHandler: @escaping () -> Void
+        releaseKeysHandler: @escaping () -> Void,
+        usesKarabinerInput: Bool
     ) {
         guard activeMachineID == nil, let window = NSApp.keyWindow else {
             return
@@ -50,12 +52,22 @@ final class ImmersionController {
         self.window = window
         showsExitHint = true
         window.toolbar?.isVisible = false
+        if usesKarabinerInput {
+            do {
+                try KarabinerInputBridge.prepare()
+                KarabinerInputBridge.setImmersionActive(true)
+                karabinerErrorMessage = nil
+            } catch {
+                karabinerErrorMessage = error.localizedDescription
+            }
+        }
 
         let capture = ImmersiveInputCapture(
             keyEventHandler: keyEventHandler,
             workspaceSwipeHandler: { [weak self] direction in
                 self?.inputCapture?.sendWorkspaceSwipe(direction)
-            }
+            },
+            usesNativeKeyboardMapping: usesKarabinerInput
         )
         inputCapture = capture
         requiresAccessibilityPermission = !capture.start()
@@ -113,6 +125,17 @@ final class ImmersionController {
                 } else {
                     inputCapture.setEnabled(true)
                 }
+                if usesKarabinerInput,
+                   self.karabinerErrorMessage != nil {
+                    do {
+                        try KarabinerInputBridge.prepare()
+                        KarabinerInputBridge.setImmersionActive(true)
+                        self.karabinerErrorMessage = nil
+                    } catch {
+                        self.karabinerErrorMessage =
+                            error.localizedDescription
+                    }
+                }
             }
         }
         exitObserver = NotificationCenter.default.addObserver(
@@ -135,6 +158,7 @@ final class ImmersionController {
         guard activeMachineID != nil else { return }
         inputCapture?.stop()
         inputCapture = nil
+        KarabinerInputBridge.setImmersionActive(false)
         removeFallbackEventMonitor()
         releaseKeysHandler?()
         releaseKeysHandler = nil
@@ -145,6 +169,7 @@ final class ImmersionController {
         activeMachineID = nil
         showsExitHint = false
         requiresAccessibilityPermission = false
+        karabinerErrorMessage = nil
         KeyboardMappingSettings.shared.deactivateMachinePreset()
         window?.toolbar?.isVisible = true
 

@@ -377,6 +377,45 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(transmitted.map(\.1), [true, true, false, false])
     }
 
+    func testKarabinerRuleContainsCriticalVZMappings() throws {
+        let manipulators = try XCTUnwrap(
+            KarabinerInputBridge.generatedRule["manipulators"]
+                as? [[String: Any]]
+        )
+        func output(
+            for key: String,
+            modifiers: [String]
+        ) -> [String: Any]? {
+            guard let manipulator = manipulators.first(where: { manipulator in
+                guard let from = manipulator["from"] as? [String: Any],
+                      from["key_code"] as? String == key,
+                      let fromModifiers =
+                        from["modifiers"] as? [String: Any],
+                      fromModifiers["mandatory"] as? [String]
+                        == modifiers else {
+                    return false
+                }
+                return true
+            }), let output = manipulator["to"] as? [[String: Any]] else {
+                return nil
+            }
+            return output.first
+        }
+
+        let quit = try XCTUnwrap(output(for: "q", modifiers: ["command"]))
+        XCTAssertEqual(quit["key_code"] as? String, "f4")
+        XCTAssertEqual(quit["modifiers"] as? [String], ["left_option"])
+
+        let switcher = try XCTUnwrap(
+            output(for: "tab", modifiers: ["command"])
+        )
+        XCTAssertEqual(switcher["key_code"] as? String, "tab")
+        XCTAssertEqual(
+            switcher["modifiers"] as? [String],
+            ["left_option"]
+        )
+    }
+
     @MainActor
     func testMacOSPointerCommandMapsToGuestControl() {
         let settings = KeyboardMappingSettings.shared

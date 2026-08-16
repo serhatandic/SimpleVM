@@ -19,6 +19,7 @@ struct MachineDetailView: View {
                     .ignoresSafeArea()
                     .overlay(alignment: .top) {
                         if immersion.requiresAccessibilityPermission
+                            || immersion.karabinerErrorMessage != nil
                             || immersion.showsExitHint {
                             VStack(spacing: 8) {
                                 if immersion.requiresAccessibilityPermission {
@@ -30,6 +31,15 @@ struct MachineDetailView: View {
                                         Button("Open Settings") {
                                             immersion.openAccessibilitySettings()
                                         }
+                                        Button("Exit Immersion") {
+                                            immersion.exit()
+                                        }
+                                    }
+                                } else if let message =
+                                    immersion.karabinerErrorMessage {
+                                    HStack {
+                                        Text(message)
+                                            .foregroundStyle(.orange)
                                         Button("Exit Immersion") {
                                             immersion.exit()
                                         }
@@ -288,7 +298,8 @@ struct MachineDetailView: View {
                 },
                 releaseKeysHandler: {
                     runtime.releaseAllKeys()
-                }
+                },
+                usesKarabinerInput: true
             )
         case .qemu:
             let runtime = model.qemuRuntime(for: machine)
@@ -299,7 +310,8 @@ struct MachineDetailView: View {
                 },
                 releaseKeysHandler: {
                     runtime.releaseAllKeys()
-                }
+                },
+                usesKarabinerInput: false
             )
         }
     }
