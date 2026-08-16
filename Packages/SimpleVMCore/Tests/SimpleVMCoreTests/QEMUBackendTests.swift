@@ -86,6 +86,7 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
     #expect(configuration.arguments.contains("q35,accel=tcg"))
     #expect(configuration.arguments.contains("Compatibility,, Test"))
     #expect(configuration.arguments.contains("127.0.0.1:1"))
+    #expect(configuration.arguments.contains("virtio-vga,xres=1280,yres=800"))
     #expect(configuration.arguments.contains {
         $0.contains("media=cdrom")
     })

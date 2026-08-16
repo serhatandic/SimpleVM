@@ -88,7 +88,7 @@ public enum QEMUConfigurationBuilder {
             "-drive",
             "if=pflash,format=raw,unit=1,file=\(variablesURL.path)",
             "-drive", "file=\(diskURL.path),if=virtio,format=raw",
-            "-device", "virtio-vga,xres=640,yres=480",
+            "-device", "virtio-vga,xres=1280,yres=800",
             "-device", "qemu-xhci",
             "-device", "usb-kbd",
             "-device", "usb-tablet",

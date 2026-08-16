@@ -33,6 +33,8 @@ final class QEMUFramebufferNSView: NSView {
         super.init(frame: frameRect)
         wantsLayer = true
         layer?.contentsGravity = .resizeAspect
+        layer?.magnificationFilter = .linear
+        layer?.minificationFilter = .linear
         layer?.backgroundColor = NSColor.black.cgColor
     }
 
@@ -94,4 +96,3 @@ final class QEMUFramebufferNSView: NSView {
         }
     }
 }
-
