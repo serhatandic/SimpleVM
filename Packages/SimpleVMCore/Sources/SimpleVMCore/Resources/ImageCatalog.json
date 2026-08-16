@@ -1,0 +1,12 @@
+[
+  {
+    "id": "ubuntu-desktop-26.04-arm64",
+    "name": "Ubuntu Desktop",
+    "version": "26.04 LTS",
+    "architecture": "arm64",
+    "artifactKind": "installerISO",
+    "remoteURL": "https://cdimage.ubuntu.com/ubuntu/releases/26.04/release/ubuntu-26.04-desktop-arm64.iso",
+    "sha256": "c2afd538d66fdd77377d03f1ed2ac76a34f1c116baecc9a8170d68f833121f57",
+    "sizeBytes": 4161089536
+  }
+]

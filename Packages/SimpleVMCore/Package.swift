@@ -11,11 +11,15 @@ let package = Package(
         .library(name: "SimpleVMCore", targets: ["SimpleVMCore"])
     ],
     targets: [
-        .target(name: "SimpleVMCore"),
+        .target(
+            name: "SimpleVMCore",
+            resources: [
+                .process("Resources")
+            ]
+        ),
         .testTarget(
             name: "SimpleVMCoreTests",
             dependencies: ["SimpleVMCore"]
         )
     ]
 )
-

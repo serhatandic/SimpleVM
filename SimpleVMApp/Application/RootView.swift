@@ -17,12 +17,9 @@ struct RootView: View {
         .task {
             await model.initialize()
         }
-        .alert(
-            "SimpleVM Could Not Start",
-            isPresented: .constant(model.errorMessage != nil)
-        ) {
-            Button("Quit") {
-                NSApplication.shared.terminate(nil)
+        .alert("SimpleVM", isPresented: errorBinding) {
+            Button("OK") {
+                model.dismissError()
             }
         } message: {
             Text(model.errorMessage ?? "")
@@ -42,11 +39,22 @@ struct RootView: View {
                     MachineEmptyView()
                 }
             case .library:
-                LibraryView(images: model.images)
+                LibraryView(model: model)
             case nil:
                 MachineEmptyView()
             }
         }
+    }
+
+    private var errorBinding: Binding<Bool> {
+        Binding(
+            get: { model.errorMessage != nil },
+            set: { isPresented in
+                if !isPresented {
+                    model.dismissError()
+                }
+            }
+        )
     }
 }
 
@@ -54,4 +62,3 @@ enum SidebarSelection: Hashable {
     case machine(UUID)
     case library
 }
-

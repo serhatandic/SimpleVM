@@ -74,3 +74,19 @@ func rejectsUnknownSchema() async throws {
     }
 }
 
+@Test
+func resolvesOnlyManagedRelativePaths() throws {
+    let rootURL = URL(filePath: "/tmp/SimpleVM")
+    let layout = StorageLayout(rootURL: rootURL)
+    let managedURL = rootURL.appending(path: "Images/test/artifact.iso")
+
+    let relativePath = try layout.relativePath(for: managedURL)
+    #expect(relativePath == "Images/test/artifact.iso")
+    #expect(try layout.resolve(relativePath: relativePath) == managedURL)
+    #expect(throws: StorageLayoutError.outsideManagedStorage) {
+        try layout.relativePath(for: URL(filePath: "/tmp/outside.iso"))
+    }
+    #expect(throws: StorageLayoutError.invalidRelativePath) {
+        try layout.resolve(relativePath: "../outside.iso")
+    }
+}

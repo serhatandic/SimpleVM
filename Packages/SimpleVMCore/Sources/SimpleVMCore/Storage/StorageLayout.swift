@@ -48,6 +48,23 @@ public struct StorageLayout: Sendable {
         machinesURL.appending(path: id.uuidString, directoryHint: .isDirectory)
     }
 
+    public func relativePath(for url: URL) throws -> String {
+        let rootComponents = rootURL.standardizedFileURL.pathComponents
+        let urlComponents = url.standardizedFileURL.pathComponents
+        guard urlComponents.starts(with: rootComponents) else {
+            throw StorageLayoutError.outsideManagedStorage
+        }
+        return urlComponents.dropFirst(rootComponents.count).joined(separator: "/")
+    }
+
+    public func resolve(relativePath: String) throws -> URL {
+        guard !relativePath.hasPrefix("/"),
+              !relativePath.split(separator: "/").contains("..") else {
+            throw StorageLayoutError.invalidRelativePath
+        }
+        return rootURL.appending(path: relativePath)
+    }
+
     public func initialize(fileManager: FileManager = .default) throws {
         for directory in [rootURL, imagesURL, machinesURL, downloadsURL, logsURL] {
             try fileManager.createDirectory(
@@ -58,3 +75,16 @@ public struct StorageLayout: Sendable {
     }
 }
 
+public enum StorageLayoutError: LocalizedError, Equatable {
+    case outsideManagedStorage
+    case invalidRelativePath
+
+    public var errorDescription: String? {
+        switch self {
+        case .outsideManagedStorage:
+            "The file is outside SimpleVM managed storage."
+        case .invalidRelativePath:
+            "The managed storage path is invalid."
+        }
+    }
+}
