@@ -41,8 +41,9 @@ targets:
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         CODE_SIGN_ENTITLEMENTS: Config/SimpleVM.entitlements
-        CODE_SIGN_IDENTITY: "-"
-        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: C8Y523R7T5
         ENABLE_HARDENED_RUNTIME: YES
         ENABLE_DEBUG_DYLIB: NO
         CURRENT_PROJECT_VERSION: 1

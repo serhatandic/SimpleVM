@@ -101,7 +101,18 @@ final class ImmersionController {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                self?.inputCapture?.setEnabled(true)
+                guard let self,
+                      let inputCapture = self.inputCapture else {
+                    return
+                }
+                if self.requiresAccessibilityPermission {
+                    if inputCapture.start() {
+                        self.requiresAccessibilityPermission = false
+                        self.removeFallbackEventMonitor()
+                    }
+                } else {
+                    inputCapture.setEnabled(true)
+                }
             }
         }
         exitObserver = NotificationCenter.default.addObserver(
@@ -124,10 +135,7 @@ final class ImmersionController {
         guard activeMachineID != nil else { return }
         inputCapture?.stop()
         inputCapture = nil
-        if let fallbackEventMonitor {
-            NSEvent.removeMonitor(fallbackEventMonitor)
-            self.fallbackEventMonitor = nil
-        }
+        removeFallbackEventMonitor()
         releaseKeysHandler?()
         releaseKeysHandler = nil
         removeObservers()
@@ -191,5 +199,12 @@ final class ImmersionController {
         resignActiveObserver = nil
         becomeActiveObserver = nil
         exitObserver = nil
+    }
+
+    private func removeFallbackEventMonitor() {
+        if let fallbackEventMonitor {
+            NSEvent.removeMonitor(fallbackEventMonitor)
+            self.fallbackEventMonitor = nil
+        }
     }
 }
