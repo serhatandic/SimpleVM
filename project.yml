@@ -1,0 +1,94 @@
+name: SimpleVM
+
+options:
+  bundleIdPrefix: com.simplevm
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: true
+
+configs:
+  Debug: debug
+  Release: release
+
+packages:
+  SimpleVMCore:
+    path: Packages/SimpleVMCore
+
+settings:
+  base:
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+    SWIFT_VERSION: "6.0"
+    CLANG_ENABLE_MODULES: YES
+    ENABLE_STRICT_OBJC_MSGSEND: YES
+    SWIFT_STRICT_CONCURRENCY: complete
+
+targets:
+  SimpleVM:
+    type: application
+    platform: macOS
+    sources:
+      - path: SimpleVMApp
+      - path: Resources
+    dependencies:
+      - package: SimpleVMCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.app
+        PRODUCT_NAME: SimpleVM
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: SimpleVM
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
+        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        CODE_SIGN_ENTITLEMENTS: Config/SimpleVM.entitlements
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        ENABLE_HARDENED_RUNTIME: YES
+        ENABLE_DEBUG_DYLIB: NO
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: 0.1.0
+
+  SimpleVMAppTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: SimpleVMAppTests
+    dependencies:
+      - target: SimpleVM
+      - package: SimpleVMCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.app-tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SimpleVM.app/Contents/MacOS/SimpleVM"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+
+  SimpleVMUITests:
+    type: bundle.ui-testing
+    platform: macOS
+    sources:
+      - path: SimpleVMUITests
+    dependencies:
+      - target: SimpleVM
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.ui-tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        TEST_TARGET_NAME: SimpleVM
+
+schemes:
+  SimpleVM:
+    build:
+      targets:
+        SimpleVM: all
+        SimpleVMAppTests: [test]
+        SimpleVMUITests: [test]
+    test:
+      gatherCoverageData: true
+      targets:
+        - SimpleVMAppTests
+        - SimpleVMUITests

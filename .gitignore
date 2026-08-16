@@ -1,0 +1,16 @@
+.DS_Store
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xccheckout
+*.xcscmblueprint
+
+# VM artifacts never belong in source control.
+*.iso
+*.img
+*.raw
+*.qcow2
+*.vmdk
+*.vmstate
