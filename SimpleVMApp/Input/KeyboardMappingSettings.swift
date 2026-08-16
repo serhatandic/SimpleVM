@@ -22,6 +22,10 @@ struct GuestKeyEvent: Equatable {
     let isModifier: Bool
 }
 
+enum GuestInputEventMarker {
+    static let value: Int64 = 0x53494D504C45564D
+}
+
 private struct HostChord: Hashable {
     let keyCode: UInt16
     let modifiers: NSEvent.ModifierFlags

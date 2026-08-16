@@ -117,9 +117,10 @@ final class MachineRuntime {
     }
 
     func sendGuestKeyEvent(_ event: GuestKeyEvent) {
-        guard let displayView,
+        guard displayView != nil,
+              let source = CGEventSource(stateID: .privateState),
               let cgEvent = CGEvent(
-                keyboardEventSource: nil,
+                keyboardEventSource: source,
                 virtualKey: CGKeyCode(event.keyCode),
                 keyDown: event.isDown
               ) else {
@@ -133,23 +134,24 @@ final class MachineRuntime {
         if event.isModifier {
             cgEvent.type = .flagsChanged
         }
-        guard let nsEvent = NSEvent(cgEvent: cgEvent) else { return }
+        cgEvent.setIntegerValueField(
+            .eventSourceUserData,
+            value: GuestInputEventMarker.value
+        )
         if event.isModifier {
             if event.isDown {
                 pressedModifierKeyCodes.insert(event.keyCode)
             } else {
                 pressedModifierKeyCodes.remove(event.keyCode)
             }
-            displayView.flagsChanged(with: nsEvent)
         } else if event.isDown {
-            if !event.isRepeat {
+            if !event.isRepeat, let nsEvent = NSEvent(cgEvent: cgEvent) {
                 pressedKeyEvents[event.keyCode] = nsEvent
             }
-            displayView.keyDown(with: nsEvent)
         } else {
             pressedKeyEvents.removeValue(forKey: event.keyCode)
-            displayView.keyUp(with: nsEvent)
         }
+        cgEvent.postToPid(getpid())
     }
 
     func releaseAllKeys() {

@@ -148,6 +148,10 @@ final class ImmersiveInputCapture {
         type: CGEventType,
         event: CGEvent
     ) -> Unmanaged<CGEvent>? {
+        if event.getIntegerValueField(.eventSourceUserData)
+            == GuestInputEventMarker.value {
+            return Unmanaged.passUnretained(event)
+        }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             if let tap {
                 CGEvent.tapEnable(tap: tap, enable: true)
