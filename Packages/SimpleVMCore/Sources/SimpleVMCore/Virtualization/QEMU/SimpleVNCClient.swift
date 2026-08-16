@@ -1,108 +1,137 @@
 import CoreGraphics
+import Darwin
 import Foundation
-import Network
 
 public final class SimpleVNCClient: @unchecked Sendable {
     public var imageHandler: (@Sendable (CGImage) -> Void)?
     public var errorHandler: (@Sendable (any Error) -> Void)?
 
-    private let connection: NWConnection
-    private let queue = DispatchQueue(label: "com.simplevm.vnc")
+    private let port: UInt16
+    private let descriptorLock = NSLock()
+    private let writeLock = NSLock()
+    private var descriptor: Int32 = -1
+    private var expectsDisconnect = false
     private var framebuffer = Data()
     private(set) var width = 0
     private(set) var height = 0
 
     public init(port: UInt16) {
-        connection = NWConnection(
-            host: .ipv4(.loopback),
-            port: NWEndpoint.Port(rawValue: port)!,
-            using: .tcp
-        )
+        self.port = port
     }
 
     public func connect() async throws {
-        connection.start(queue: queue)
-        try await waitUntilReady()
-        try await handshake()
-        Task {
+        try await Task.detached { [self] in
+            try openSocket()
+            try handshake()
+        }.value
+        Task.detached { [weak self] in
+            guard let self else { return }
             do {
-                try await readUpdates()
+                try readUpdates()
             } catch {
-                errorHandler?(error)
+                if !descriptorLock.withLock({ expectsDisconnect }) {
+                    errorHandler?(error)
+                }
             }
         }
     }
 
     public func disconnect() {
-        connection.cancel()
+        let descriptor = descriptorLock.withLock {
+            expectsDisconnect = true
+            let descriptor = self.descriptor
+            self.descriptor = -1
+            return descriptor
+        }
+        if descriptor >= 0 {
+            shutdown(descriptor, SHUT_RDWR)
+            close(descriptor)
+        }
     }
 
     public func sendKey(_ keysym: UInt32, isDown: Bool) {
         var message = Data([4, isDown ? 1 : 0, 0, 0])
         message.appendBigEndian(keysym)
-        sendWithoutWaiting(message)
+        try? send(message)
     }
 
     public func sendPointer(mask: UInt8, x: UInt16, y: UInt16) {
         var message = Data([5, mask])
         message.appendBigEndian(x)
         message.appendBigEndian(y)
-        sendWithoutWaiting(message)
+        try? send(message)
     }
 
-    private func waitUntilReady() async throws {
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Void, any Error>) in
-            let gate = VNCContinuationGate()
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    guard gate.claim() else { return }
-                    continuation.resume()
-                case .failed(let error):
-                    guard gate.claim() else { return }
-                    continuation.resume(throwing: error)
-                default:
-                    break
-                }
+    private func openSocket() throws {
+        let descriptor = socket(AF_INET, SOCK_STREAM, 0)
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        var noSignal: Int32 = 1
+        setsockopt(
+            descriptor,
+            SOL_SOCKET,
+            SO_NOSIGPIPE,
+            &noSignal,
+            socklen_t(MemoryLayout<Int32>.size)
+        )
+        var address = sockaddr_in()
+        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
+        address.sin_family = sa_family_t(AF_INET)
+        address.sin_port = port.bigEndian
+        address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
+        let result = withUnsafePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+                Darwin.connect(
+                    descriptor,
+                    $0,
+                    socklen_t(MemoryLayout<sockaddr_in>.size)
+                )
             }
+        }
+        guard result == 0 else {
+            let error = POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            close(descriptor)
+            throw error
+        }
+        descriptorLock.withLock {
+            self.descriptor = descriptor
+            expectsDisconnect = false
         }
     }
 
-    private func handshake() async throws {
-        let version = try await receiveExactly(12)
+    private func handshake() throws {
+        let version = try receiveExactly(12)
         guard String(data: version, encoding: .ascii)?.hasPrefix("RFB 003.") == true
         else {
             throw SimpleVNCError.unsupportedVersion
         }
-        try await send(Data("RFB 003.008\n".utf8))
+        try send(Data("RFB 003.008\n".utf8))
 
-        let securityCount = Int(try await receiveExactly(1)[0])
+        let securityCount = Int(try receiveExactly(1)[0])
         guard securityCount > 0 else {
-            let reasonLength = Int(
-                try await receiveExactly(4).readUInt32BigEndian(at: 0)
+            let length = Int(
+                try receiveExactly(4).readUInt32BigEndian(at: 0)
             )
-            _ = try await receiveExactly(reasonLength)
+            _ = try receiveExactly(length)
             throw SimpleVNCError.noSecurityType
         }
-        let securityTypes = try await receiveExactly(securityCount)
+        let securityTypes = try receiveExactly(securityCount)
         guard securityTypes.contains(1) else {
             throw SimpleVNCError.noSecurityType
         }
-        try await send(Data([1]))
-        let securityResult = try await receiveExactly(4).readUInt32BigEndian(
-            at: 0
-        )
-        guard securityResult == 0 else {
+        try send(Data([1]))
+        guard try receiveExactly(4).readUInt32BigEndian(at: 0) == 0 else {
             throw SimpleVNCError.authenticationFailed
         }
 
-        try await send(Data([1]))
-        let serverHeader = try await receiveExactly(24)
+        try send(Data([1]))
+        let serverHeader = try receiveExactly(24)
         width = Int(serverHeader.readUInt16BigEndian(at: 0))
         height = Int(serverHeader.readUInt16BigEndian(at: 2))
-        let nameLength = Int(serverHeader.readUInt32BigEndian(at: 20))
-        _ = try await receiveExactly(nameLength)
+        _ = try receiveExactly(
+            Int(serverHeader.readUInt32BigEndian(at: 20))
+        )
         framebuffer = Data(repeating: 0, count: width * height * 4)
 
         var pixelFormat = Data([0, 0, 0, 0, 32, 24, 0, 1])
@@ -110,43 +139,44 @@ public final class SimpleVNCClient: @unchecked Sendable {
         pixelFormat.appendBigEndian(UInt16(255))
         pixelFormat.appendBigEndian(UInt16(255))
         pixelFormat.append(contentsOf: [16, 8, 0, 0, 0, 0])
-        try await send(pixelFormat)
+        try send(pixelFormat)
 
         var encodings = Data([2, 0])
         encodings.appendBigEndian(UInt16(2))
         encodings.appendBigEndian(UInt32(0))
         encodings.appendBigEndian(UInt32(bitPattern: -223))
-        try await send(encodings)
-        try await requestUpdate(incremental: false)
+        try send(encodings)
+        try requestUpdate(incremental: false)
     }
 
-    private func readUpdates() async throws {
+    private func readUpdates() throws {
         while true {
-            let messageType = try await receiveExactly(1)[0]
-            switch messageType {
+            switch try receiveExactly(1)[0] {
             case 0:
-                try await readFramebufferUpdate()
+                try readFramebufferUpdate()
             case 1:
-                let header = try await receiveExactly(5)
-                let colorCount = Int(header.readUInt16BigEndian(at: 3))
-                _ = try await receiveExactly(colorCount * 6)
+                let header = try receiveExactly(5)
+                _ = try receiveExactly(
+                    Int(header.readUInt16BigEndian(at: 3)) * 6
+                )
             case 2:
                 continue
             case 3:
-                let header = try await receiveExactly(7)
-                let length = Int(header.readUInt32BigEndian(at: 3))
-                _ = try await receiveExactly(length)
-            default:
-                throw SimpleVNCError.unsupportedMessage(messageType)
+                let header = try receiveExactly(7)
+                _ = try receiveExactly(
+                    Int(header.readUInt32BigEndian(at: 3))
+                )
+            case let type:
+                throw SimpleVNCError.unsupportedMessage(type)
             }
         }
     }
 
-    private func readFramebufferUpdate() async throws {
-        let header = try await receiveExactly(3)
+    private func readFramebufferUpdate() throws {
+        let header = try receiveExactly(3)
         let rectangleCount = Int(header.readUInt16BigEndian(at: 1))
         for _ in 0..<rectangleCount {
-            let rectangle = try await receiveExactly(12)
+            let rectangle = try receiveExactly(12)
             let x = Int(rectangle.readUInt16BigEndian(at: 0))
             let y = Int(rectangle.readUInt16BigEndian(at: 2))
             let rectangleWidth = Int(rectangle.readUInt16BigEndian(at: 4))
@@ -161,13 +191,13 @@ public final class SimpleVNCClient: @unchecked Sendable {
                     repeating: 0,
                     count: width * height * 4
                 )
-                try await requestUpdate(incremental: false)
+                try requestUpdate(incremental: false)
                 continue
             }
             guard encoding == 0 else {
                 throw SimpleVNCError.unsupportedEncoding(encoding)
             }
-            var pixels = try await receiveExactly(
+            var pixels = try receiveExactly(
                 rectangleWidth * rectangleHeight * 4
             )
             for alphaIndex in stride(from: 3, to: pixels.count, by: 4) {
@@ -182,7 +212,7 @@ public final class SimpleVNCClient: @unchecked Sendable {
             )
         }
         publishImage()
-        try await requestUpdate(incremental: true)
+        try requestUpdate(incremental: true)
     }
 
     private func copy(
@@ -205,7 +235,7 @@ public final class SimpleVNCClient: @unchecked Sendable {
             }
             framebuffer.replaceSubrange(
                 destinationStart..<destinationEnd,
-                with: pixels[sourceStart..<(sourceStart + sourceRowBytes)]
+                with: pixels[sourceStart..<sourceEnd]
             )
         }
     }
@@ -233,74 +263,61 @@ public final class SimpleVNCClient: @unchecked Sendable {
         imageHandler?(image)
     }
 
-    private func requestUpdate(incremental: Bool) async throws {
+    private func requestUpdate(incremental: Bool) throws {
         var message = Data([3, incremental ? 1 : 0])
         message.appendBigEndian(UInt16(0))
         message.appendBigEndian(UInt16(0))
         message.appendBigEndian(UInt16(width))
         message.appendBigEndian(UInt16(height))
-        try await send(message)
+        try send(message)
     }
 
-    private func receiveExactly(_ count: Int) async throws -> Data {
-        guard count > 0 else {
-            return Data()
-        }
-        var result = Data()
-        while result.count < count {
-            let remaining = count - result.count
-            let chunk = try await withCheckedThrowingContinuation {
-                (continuation: CheckedContinuation<Data, any Error>) in
-                connection.receive(
-                    minimumIncompleteLength: 1,
-                    maximumLength: remaining
-                ) { data, _, isComplete, error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else if let data, !data.isEmpty {
-                        continuation.resume(returning: data)
-                    } else if isComplete {
-                        continuation.resume(throwing: SimpleVNCError.disconnected)
-                    } else {
-                        continuation.resume(throwing: SimpleVNCError.disconnected)
-                    }
+    private func receiveExactly(_ count: Int) throws -> Data {
+        guard count > 0 else { return Data() }
+        var result = Data(count: count)
+        try result.withUnsafeMutableBytes { bytes in
+            var offset = 0
+            while offset < count {
+                let descriptor = descriptorLock.withLock { self.descriptor }
+                guard descriptor >= 0 else {
+                    throw SimpleVNCError.disconnected
                 }
+                let received = Darwin.recv(
+                    descriptor,
+                    bytes.baseAddress!.advanced(by: offset),
+                    count - offset,
+                    0
+                )
+                guard received > 0 else {
+                    throw SimpleVNCError.disconnected
+                }
+                offset += received
             }
-            result.append(chunk)
         }
         return result
     }
 
-    private func send(_ data: Data) async throws {
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Void, any Error>) in
-            connection.send(
-                content: data,
-                completion: .contentProcessed { error in
-                    if let error {
-                        continuation.resume(throwing: error)
-                    } else {
-                        continuation.resume()
+    private func send(_ data: Data) throws {
+        try writeLock.withLock {
+            let descriptor = descriptorLock.withLock { self.descriptor }
+            guard descriptor >= 0 else {
+                throw SimpleVNCError.disconnected
+            }
+            try data.withUnsafeBytes { bytes in
+                var offset = 0
+                while offset < bytes.count {
+                    let written = Darwin.send(
+                        descriptor,
+                        bytes.baseAddress!.advanced(by: offset),
+                        bytes.count - offset,
+                        0
+                    )
+                    guard written > 0 else {
+                        throw SimpleVNCError.disconnected
                     }
+                    offset += written
                 }
-            )
-        }
-    }
-
-    private func sendWithoutWaiting(_ data: Data) {
-        connection.send(content: data, completion: .idempotent)
-    }
-}
-
-private final class VNCContinuationGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var claimed = false
-
-    func claim() -> Bool {
-        lock.withLock {
-            guard !claimed else { return false }
-            claimed = true
-            return true
+            }
         }
     }
 }

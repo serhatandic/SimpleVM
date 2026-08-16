@@ -1,6 +1,5 @@
 import CoreGraphics
 import Foundation
-import Network
 import Observation
 import SimpleVMCore
 
@@ -26,6 +25,9 @@ final class QEMUMachineRuntime {
     @ObservationIgnored
     private var vncClient: SimpleVNCClient?
 
+    @ObservationIgnored
+    private var diagnosticURL: URL?
+
     init(state: MachineRuntimeState = .stopped) {
         switch state {
         case .running, .starting, .stopping:
@@ -45,9 +47,13 @@ final class QEMUMachineRuntime {
             return
         }
         transition(to: .starting)
+        diagnosticURL = backendStateURL.appending(path: "runtime.log")
+        log("starting")
         do {
             let runtime = try QEMURuntimeDiscovery.discover()
+            log("QEMU discovered at \(runtime.systemExecutableURL.path)")
             let port = try await LoopbackPortAllocator.allocate()
+            log("reserved VNC port \(port)")
             var releasesPortReservation = true
             defer {
                 if releasesPortReservation {
@@ -62,6 +68,7 @@ final class QEMUMachineRuntime {
                 runtime: runtime,
                 vncPort: port
             )
+            log("configuration built")
             let controller = QEMUProcessController { [weak self] processState in
                 Task { @MainActor in
                     self?.handle(processState: processState)
@@ -69,26 +76,16 @@ final class QEMUMachineRuntime {
             }
             processController = controller
             try await controller.start(configuration: configuration)
-            try await waitForPort(port)
+            log("QEMU process started")
             LoopbackPortAllocator.release(port)
             releasesPortReservation = false
 
-            let client = SimpleVNCClient(port: port)
-            client.imageHandler = { [weak self] image in
-                let image = CGImageBox(image)
-                Task { @MainActor in
-                    self?.framebuffer = image.value
-                }
-            }
-            client.errorHandler = { [weak self] error in
-                Task { @MainActor in
-                    self?.errorHandler?(error)
-                }
-            }
+            let client = try await connectVNC(port: port)
             vncClient = client
-            try await client.connect()
+            log("VNC connected")
             transition(to: .running)
         } catch {
+            log("start failed: \(error.localizedDescription)")
             await processController?.forceStop()
             clearRuntime()
             transition(to: .failed(message: error.localizedDescription))
@@ -127,45 +124,6 @@ final class QEMUMachineRuntime {
         vncClient?.sendPointer(mask: mask, x: x, y: y)
     }
 
-    private func waitForPort(_ port: UInt16) async throws {
-        for _ in 0..<100 {
-            do {
-                try await probePort(port)
-                return
-            } catch {
-                try await Task.sleep(for: .milliseconds(50))
-            }
-        }
-        throw QEMURuntimeDisplayError.unavailable
-    }
-
-    private func probePort(_ port: UInt16) async throws {
-        let connection = NWConnection(
-            host: .ipv4(.loopback),
-            port: NWEndpoint.Port(rawValue: port)!,
-            using: .tcp
-        )
-        try await withCheckedThrowingContinuation {
-            (continuation: CheckedContinuation<Void, any Error>) in
-            let gate = ContinuationGate()
-            connection.stateUpdateHandler = { state in
-                switch state {
-                case .ready:
-                    guard gate.claim() else { return }
-                    connection.cancel()
-                    continuation.resume()
-                case .failed(let error):
-                    guard gate.claim() else { return }
-                    connection.cancel()
-                    continuation.resume(throwing: error)
-                default:
-                    break
-                }
-            }
-            connection.start(queue: .global(qos: .userInitiated))
-        }
-    }
-
     private func handle(processState: QEMUProcessController.State) {
         switch processState {
         case .stopped:
@@ -179,9 +137,55 @@ final class QEMUMachineRuntime {
         }
     }
 
+    private func connectVNC(port: UInt16) async throws -> SimpleVNCClient {
+        var lastError: (any Error)?
+        for attempt in 1...100 {
+            let client = SimpleVNCClient(port: port)
+            client.imageHandler = { [weak self] image in
+                let image = CGImageBox(image)
+                Task { @MainActor in
+                    self?.framebuffer = image.value
+                }
+            }
+            client.errorHandler = { [weak self] error in
+                Task { @MainActor in
+                    self?.errorHandler?(error)
+                }
+            }
+            do {
+                log("connecting VNC (attempt \(attempt))")
+                try await client.connect()
+                return client
+            } catch {
+                lastError = error
+                client.disconnect()
+                try await Task.sleep(for: .milliseconds(50))
+            }
+        }
+        throw lastError ?? QEMUVNCError.unavailable
+    }
+
     private func transition(to state: MachineRuntimeState) {
         self.state = state
         stateHandler?(state)
+    }
+
+    private func log(_ message: String) {
+        guard let diagnosticURL else { return }
+        let line = "\(Date().ISO8601Format()) \(message)\n"
+        if !FileManager.default.fileExists(atPath: diagnosticURL.path) {
+            _ = FileManager.default.createFile(
+                atPath: diagnosticURL.path,
+                contents: Data(line.utf8)
+            )
+            return
+        }
+        guard let handle = try? FileHandle(forWritingTo: diagnosticURL) else {
+            return
+        }
+        defer { try? handle.close() }
+        _ = try? handle.seekToEnd()
+        try? handle.write(contentsOf: Data(line.utf8))
     }
 
     private func clearRuntime() {
@@ -200,7 +204,7 @@ private final class CGImageBox: @unchecked Sendable {
     }
 }
 
-private enum QEMURuntimeDisplayError: LocalizedError {
+private enum QEMUVNCError: LocalizedError {
     case unavailable
 
     var errorDescription: String? {
