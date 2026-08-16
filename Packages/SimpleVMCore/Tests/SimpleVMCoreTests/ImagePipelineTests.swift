@@ -78,8 +78,7 @@ func createsSectorAlignedSparseDisk() throws {
 
 @Test
 func downloadsAndVerifiesImageBeforePromotion() async throws {
-    let payload = Data("verified image".utf8)
-    StubURLProtocol.payload = payload
+    let payload = StubURLProtocol.payload
 
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [StubURLProtocol.self]
@@ -103,8 +102,29 @@ func downloadsAndVerifiesImageBeforePromotion() async throws {
     #expect(try Data(contentsOf: destinationURL) == payload)
 }
 
+@Test
+func reportsHTTPFailureSeparatelyFromChecksumFailure() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [StubURLProtocol.self]
+    let client = ImageDownloadClient(configuration: configuration)
+    let destinationURL = FileManager.default.temporaryDirectory.appending(
+        path: UUID().uuidString
+    )
+    defer {
+        try? FileManager.default.removeItem(at: destinationURL)
+    }
+
+    await #expect(throws: ImageDownloadError.httpStatus(404)) {
+        try await client.download(
+            from: URL(string: "https://example.test/missing.iso")!,
+            to: destinationURL,
+            expectedSHA256: String(repeating: "0", count: 64)
+        ) { _ in }
+    }
+}
+
 private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
-    nonisolated(unsafe) static var payload = Data()
+    static let payload = Data("verified image".utf8)
 
     override class func canInit(with request: URLRequest) -> Bool {
         true
@@ -115,9 +135,12 @@ private final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func startLoading() {
+        let statusCode = request.url?.lastPathComponent == "missing.iso"
+            ? 404
+            : 200
         let response = HTTPURLResponse(
             url: request.url!,
-            statusCode: 200,
+            statusCode: statusCode,
             httpVersion: nil,
             headerFields: [
                 "Content-Length": String(Self.payload.count)

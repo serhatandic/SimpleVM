@@ -376,6 +376,33 @@ final class AppModel {
         return runtime
     }
 
+    var hasActiveMachines: Bool {
+        runtimes.values.contains {
+            switch $0.state {
+            case .starting, .running, .stopping:
+                true
+            case .stopped, .failed:
+                false
+            }
+        }
+    }
+
+    func stopAllMachines() async {
+        for runtime in runtimes.values {
+            if runtime.state == .starting {
+                for _ in 0..<100 where runtime.state == .starting {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+            }
+            switch runtime.state {
+            case .running, .stopping:
+                await runtime.forceStop()
+            case .stopped, .starting, .failed:
+                break
+            }
+        }
+    }
+
     func start(_ machine: Machine) async {
         guard let machineStore, let layout else {
             present(error: AppModelError.notInitialized)

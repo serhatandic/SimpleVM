@@ -7,6 +7,7 @@ public enum ImageDownloadPhase: Equatable, Sendable {
 
 public enum ImageDownloadError: LocalizedError, Equatable {
     case invalidResponse
+    case httpStatus(Int)
     case checksumMismatch(expected: String, actual: String)
     case incompleteDownload
 
@@ -14,6 +15,8 @@ public enum ImageDownloadError: LocalizedError, Equatable {
         switch self {
         case .invalidResponse:
             "The image server returned an invalid response."
+        case .httpStatus(let status):
+            "The image server returned HTTP status \(status)."
         case .checksumMismatch:
             "The downloaded image failed checksum verification."
         case .incompleteDownload:
@@ -136,6 +139,13 @@ public final class ImageDownloadClient:
         }
 
         do {
+            guard let response = downloadTask.response as? HTTPURLResponse else {
+                throw ImageDownloadError.invalidResponse
+            }
+            guard (200..<300).contains(response.statusCode) else {
+                throw ImageDownloadError.httpStatus(response.statusCode)
+            }
+
             let parentURL = context.destinationURL.deletingLastPathComponent()
             try fileManager.createDirectory(
                 at: parentURL,

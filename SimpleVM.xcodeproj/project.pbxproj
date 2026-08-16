@@ -15,6 +15,7 @@
 		7888B06DC66F25ED5F833C59 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5C74D1D84F26328E4E21CA4 /* AppModel.swift */; };
 		7E411FE748C58D183A072BC1 /* MachineDisplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86F6149CE1A73CC0B812B1CE /* MachineDisplayView.swift */; };
 		A04BC5D803484483321046C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D3C57FAEE82D92275B30667B /* Assets.xcassets */; };
+		A1D441994B601F267BFD24EE /* AppLifecycleDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F28839F625F13DFFBF555EC /* AppLifecycleDelegate.swift */; };
 		A24AB58487D28B09DD450DCC /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD2FBB02FB71E409A7D821C2 /* LibraryView.swift */; };
 		AF2DF78A26F795AE3580E341 /* LaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0DCB98047E5FF0D5E7B40D /* LaunchTests.swift */; };
 		B01AAA137DEC36F98DB948A3 /* SimpleVMCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B4DA1DDD021526302779E3B /* SimpleVMCore */; };
@@ -46,6 +47,7 @@
 		050F6FB12EE8757A9A3DF6AA /* SimpleVMCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SimpleVMCore; path = Packages/SimpleVMCore; sourceTree = SOURCE_ROOT; };
 		196CF9291A01A3300651A1F1 /* SimpleVMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleVMApp.swift; sourceTree = "<group>"; };
 		1D904C8CFEF1E135E5D9855F /* FoundationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationTests.swift; sourceTree = "<group>"; };
+		1F28839F625F13DFFBF555EC /* AppLifecycleDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleDelegate.swift; sourceTree = "<group>"; };
 		5A1CB140D317CF0248162C45 /* MachineDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineDetailView.swift; sourceTree = "<group>"; };
 		746AF525D76C096CB5EBCF74 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		7F6CF288BE530F5F2AFC2AEC /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -115,6 +117,7 @@
 		227FE4D072D88E4E77B1FE95 /* Application */ = {
 			isa = PBXGroup;
 			children = (
+				1F28839F625F13DFFBF555EC /* AppLifecycleDelegate.swift */,
 				E5C74D1D84F26328E4E21CA4 /* AppModel.swift */,
 				7F6CF288BE530F5F2AFC2AEC /* RootView.swift */,
 			);
@@ -349,6 +352,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1D441994B601F267BFD24EE /* AppLifecycleDelegate.swift in Sources */,
 				7888B06DC66F25ED5F833C59 /* AppModel.swift in Sources */,
 				A24AB58487D28B09DD450DCC /* LibraryView.swift in Sources */,
 				FA112881CC9C514074BFC9B2 /* MachineDetailView.swift in Sources */,
