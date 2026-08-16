@@ -196,21 +196,32 @@ struct MachineDetailView: View {
             case .qemu:
                 let runtime = model.qemuRuntime(for: machine)
                 if runtime.hasDisplay {
-                    QEMUMachineDisplayView(
-                        runtime: runtime,
-                        isImmersive: immersion.isActive(
-                            machineID: machine.id
-                        ),
-                        pointerInteractionHandler: { active, modifiers in
-                            if active {
-                                immersion.beginPointerInteraction(
-                                    modifiers: modifiers
-                                )
-                            } else {
-                                immersion.endPointerInteraction()
+                    if runtime.usesAcceleratedDisplay {
+                        SPICEMachineDisplayView(
+                            runtime: runtime,
+                            isImmersive: immersion.isActive(
+                                machineID: machine.id
+                            )
+                        )
+                    } else {
+                        QEMUMachineDisplayView(
+                            runtime: runtime,
+                            isImmersive: immersion.isActive(
+                                machineID: machine.id
+                            ),
+                            pointerInteractionHandler: {
+                                active,
+                                modifiers in
+                                if active {
+                                    immersion.beginPointerInteraction(
+                                        modifiers: modifiers
+                                    )
+                                } else {
+                                    immersion.endPointerInteraction()
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                     if runtime.requiresDiskPassword {
                         Text(
                             "Encrypted disk is waiting for its passphrase. Type it and press Return."

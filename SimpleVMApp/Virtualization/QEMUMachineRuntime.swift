@@ -10,12 +10,19 @@ final class QEMUMachineRuntime {
     private(set) var state: MachineRuntimeState
     private(set) var hasDisplay = false
     private(set) var requiresDiskPassword = false
+    private(set) var usesAcceleratedDisplay = false
 
     @ObservationIgnored
     private(set) var framebuffer: CGImage?
 
     @ObservationIgnored
     weak var displayView: QEMUFramebufferNSView?
+
+    @ObservationIgnored
+    weak var spiceDisplayView: SPICEFramebufferNSView?
+
+    @ObservationIgnored
+    private(set) var spiceController: SPICEConnectionController?
 
     @ObservationIgnored
     var stateHandler: ((MachineRuntimeState) -> Void)?
@@ -75,7 +82,7 @@ final class QEMUMachineRuntime {
         )
         log("starting")
         do {
-            let runtime = try QEMURuntimeDiscovery.discover()
+            let runtime = try discoverRuntime()
             log("QEMU discovered at \(runtime.systemExecutableURL.path)")
             let port = try await LoopbackPortAllocator.allocate()
             log("reserved VNC port \(port)")
@@ -105,9 +112,29 @@ final class QEMUMachineRuntime {
             LoopbackPortAllocator.release(port)
             releasesPortReservation = false
 
-            let client = try await connectVNC(port: port)
-            vncClient = client
-            log("VNC connected")
+            switch runtime.displayBackend {
+            case .vnc:
+                let client = try await connectVNC(port: port)
+                vncClient = client
+                log("VNC connected")
+            case .spiceGL:
+                guard let socketURL = configuration.spiceSocketURL else {
+                    throw QEMUVNCError.unavailable
+                }
+                let spice = SPICEConnectionController()
+                spice.displayHandler = { [weak self] display in
+                    guard let self else { return }
+                    self.spiceDisplayView?.display = display
+                    self.hasDisplay = true
+                }
+                spice.errorHandler = { [weak self] error in
+                    self?.errorHandler?(error)
+                }
+                spiceController = spice
+                usesAcceleratedDisplay = true
+                try await spice.connect(to: socketURL)
+                log("SPICE GL connected")
+            }
             transition(to: .running)
         } catch {
             log("start failed: \(error.localizedDescription)")
@@ -150,10 +177,20 @@ final class QEMUMachineRuntime {
     }
 
     func sendPointer(mask: UInt8, x: UInt16, y: UInt16) {
-        vncClient?.sendPointer(mask: mask, x: x, y: y)
+        if let spiceController {
+            spiceController.sendPointer(mask: mask, x: x, y: y)
+        } else {
+            vncClient?.sendPointer(mask: mask, x: x, y: y)
+        }
     }
 
     func requestDisplaySize(width: Int, height: Int) {
+        if let display = spiceController?.display {
+            display.requestResolution(
+                CGRect(x: 0, y: 0, width: width, height: height)
+            )
+            return
+        }
         let scale = min(
             1,
             min(1_280 / Double(max(width, 1)), 800 / Double(max(height, 1)))
@@ -176,6 +213,52 @@ final class QEMUMachineRuntime {
     }
 
     func sendKeyEvent(_ event: NSEvent) {
+        if spiceController != nil {
+            if event.keyCode == 57 {
+                let press = GuestKeyEvent(
+                    keyCode: event.keyCode,
+                    isDown: true,
+                    isRepeat: false,
+                    modifiers: event.modifierFlags,
+                    isModifier: true
+                )
+                sendGuestKeyEvent(press)
+                sendGuestKeyEvent(
+                    GuestKeyEvent(
+                        keyCode: event.keyCode,
+                        isDown: false,
+                        isRepeat: false,
+                        modifiers: event.modifierFlags,
+                        isModifier: true
+                    )
+                )
+                return
+            }
+            let isDown: Bool
+            switch event.type {
+            case .keyDown:
+                isDown = true
+            case .keyUp:
+                isDown = false
+            case .flagsChanged:
+                isDown = QEMUKeyMapper.isModifierDown(event)
+            default:
+                return
+            }
+            sendGuestKeyEvent(
+                GuestKeyEvent(
+                    keyCode: event.keyCode,
+                    isDown: isDown,
+                    isRepeat: event.isARepeat,
+                    modifiers: event.modifierFlags,
+                    isModifier: event.type == .flagsChanged
+                )
+            )
+            if !isDown, event.keyCode == 36 || event.keyCode == 76 {
+                requiresDiskPassword = false
+            }
+            return
+        }
         switch event.type {
         case .keyDown:
             guard let keysym = QEMUKeyMapper.keysym(for: event) else { return }
@@ -211,6 +294,14 @@ final class QEMUMachineRuntime {
     }
 
     func sendGuestKeyEvent(_ event: GuestKeyEvent) {
+        if !event.isDown,
+           event.keyCode == 36 || event.keyCode == 76 {
+            requiresDiskPassword = false
+        }
+        if let spiceController {
+            spiceController.sendKey(event)
+            return
+        }
         guard let keysym = QEMUKeyMapper.keysym(for: event) else { return }
         if event.isDown {
             pressedKeysyms.insert(keysym)
@@ -222,13 +313,10 @@ final class QEMUMachineRuntime {
             pressedModifierKeyCodes.remove(event.keyCode)
         }
         sendKey(keysym, isDown: event.isDown)
-        if !event.isDown,
-           event.keyCode == 36 || event.keyCode == 76 {
-            requiresDiskPassword = false
-        }
     }
 
     func releaseAllKeys() {
+        spiceController?.releaseKeys()
         for keysym in pressedKeysyms {
             sendKey(keysym, isDown: false)
         }
@@ -348,13 +436,50 @@ final class QEMUMachineRuntime {
         vncClient?.errorHandler = nil
         vncClient?.disconnect()
         vncClient = nil
+        spiceController?.disconnect()
+        spiceController = nil
         framebuffer = nil
         displayView?.image = nil
         displayView = nil
+        spiceDisplayView?.display = nil
+        spiceDisplayView = nil
         hasDisplay = false
+        usesAcceleratedDisplay = false
         processController = nil
         pressedKeysyms.removeAll()
         pressedModifierKeyCodes.removeAll()
+    }
+
+    private func discoverRuntime() throws -> QEMURuntime {
+        let fallback = try QEMURuntimeDiscovery.discover()
+        let fileManager = FileManager.default
+        let helperURL = Bundle.main.bundleURL
+            .appending(path: "Contents/Helpers/UTMQEMULauncher")
+        let resourcesURL = URL(
+            filePath: "/Applications/UTM.app/Contents/Resources/qemu",
+            directoryHint: .isDirectory
+        )
+        let frameworkURL = URL(
+            filePath:
+                "/Applications/UTM.app/Contents/Frameworks/qemu-x86_64-softmmu.framework/qemu-x86_64-softmmu"
+        )
+        guard fileManager.isExecutableFile(atPath: helperURL.path),
+              fileManager.fileExists(atPath: frameworkURL.path) else {
+            return fallback
+        }
+        return QEMURuntime(
+            systemExecutableURL: helperURL,
+            imageExecutableURL: fallback.imageExecutableURL,
+            firmwareCodeURL: resourcesURL.appending(
+                path: "edk2-x86_64-code.fd"
+            ),
+            firmwareVariablesTemplateURL: resourcesURL.appending(
+                path: "edk2-i386-vars.fd"
+            ),
+            displayBackend: .spiceGL(
+                resourceDirectoryURL: resourcesURL
+            )
+        )
     }
 }
 

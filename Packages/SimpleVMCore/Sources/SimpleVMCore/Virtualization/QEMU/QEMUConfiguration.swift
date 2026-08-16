@@ -6,19 +6,22 @@ public struct QEMUConfiguration: Equatable, Sendable {
     public let vncPort: UInt16
     public let qmpSocketURL: URL
     public let logURL: URL
+    public let spiceSocketURL: URL?
 
     public init(
         executableURL: URL,
         arguments: [String],
         vncPort: UInt16,
         qmpSocketURL: URL,
-        logURL: URL
+        logURL: URL,
+        spiceSocketURL: URL? = nil
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
         self.vncPort = vncPort
         self.qmpSocketURL = qmpSocketURL
         self.logURL = logURL
+        self.spiceSocketURL = spiceSocketURL
     }
 }
 
@@ -59,6 +62,9 @@ public enum QEMUConfigurationBuilder {
         let agentURL = socketDirectory.appending(
             path: "\(socketPrefix)-agent.sock"
         )
+        let spiceURL = socketDirectory.appending(
+            path: "\(socketPrefix)-spice.sock"
+        )
         let logURL = backendStateURL.appending(path: "qemu.log")
         let serialURL = backendStateURL.appending(path: "serial.log")
         let memoryMiB = max(512, machine.spec.memorySizeBytes / 1_024 / 1_024)
@@ -69,16 +75,24 @@ public enum QEMUConfigurationBuilder {
         }
         let networkDefinition = (["user", "id=net0"] + forwarding)
             .joined(separator: ",")
+        let cpuCount: Int
+        let accelerator: String
+        switch runtime.displayBackend {
+        case .vnc:
+            cpuCount = min(machine.spec.cpuCount, 2)
+            accelerator = "tcg,tb-size=1024"
+        case .spiceGL:
+            cpuCount = machine.spec.cpuCount
+            accelerator = "tcg,thread=multi,tb-size=2048"
+        }
         var arguments = [
             "-name", machine.name.replacingOccurrences(of: ",", with: ",,"),
             "-machine", "q35,hpet=off",
-            "-accel", "tcg,tb-size=1024",
+            "-accel", accelerator,
             "-cpu", "max",
-            "-smp", String(min(machine.spec.cpuCount, 2)),
+            "-smp", String(cpuCount),
             "-m", String(memoryMiB),
             "-nodefaults",
-            "-display", "none",
-            "-vnc", "127.0.0.1:\(displayNumber)",
             "-qmp", "unix:\(qmpURL.path),server=on,wait=off",
             "-serial", "file:\(serialURL.path)",
             "-device", "virtio-serial-pci",
@@ -94,14 +108,31 @@ public enum QEMUConfigurationBuilder {
             "if=none,id=system-disk,file=\(diskURL.path),format=raw,cache=writeback,aio=threads,discard=unmap,detect-zeroes=unmap",
             "-device",
             "virtio-blk-pci,drive=system-disk,bootindex=0",
-            "-device", "virtio-vga,xres=1280,yres=800",
             "-device", "virtio-rng-pci",
-            "-device", "qemu-xhci",
-            "-device", "usb-kbd",
-            "-device", "usb-tablet",
             "-netdev", networkDefinition,
             "-device", "virtio-net-pci,netdev=net0"
         ]
+        switch runtime.displayBackend {
+        case .vnc:
+            arguments.append(contentsOf: [
+                "-display", "none",
+                "-vnc", "127.0.0.1:\(displayNumber)",
+                "-device", "virtio-vga,xres=1280,yres=800",
+                "-device", "qemu-xhci",
+                "-device", "usb-kbd",
+                "-device", "usb-tablet"
+            ])
+        case .spiceGL(let resourceDirectoryURL):
+            arguments.append(contentsOf: [
+                "-L", resourceDirectoryURL.path,
+                "-display", "none",
+                "-spice",
+                "unix=on,addr=\(spiceURL.path),disable-ticketing=on,gl=on,image-compression=off,playback-compression=off,streaming-video=off",
+                "-device", "virtio-vga-gl,xres=1280,yres=800",
+                "-device", "virtio-keyboard-pci",
+                "-device", "virtio-tablet-pci"
+            ])
+        }
         if let installerURL {
             arguments.append(contentsOf: [
                 "-drive",
@@ -116,7 +147,10 @@ public enum QEMUConfigurationBuilder {
             arguments: arguments,
             vncPort: vncPort,
             qmpSocketURL: qmpURL,
-            logURL: logURL
+            logURL: logURL,
+            spiceSocketURL: runtime.displayBackend == .vnc
+                ? nil
+                : spiceURL
         )
     }
 }

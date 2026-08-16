@@ -27,6 +27,12 @@ struct SettingsView: View {
                             qemuAvailable ? Color.secondary : Color.red
                         )
                 }
+                LabeledContent(
+                    "VZ Keyboard Mapping",
+                    value: KarabinerInputBridge.isInstalled
+                        ? "Virtual HID ready"
+                        : "Install Karabiner-Elements"
+                )
                 LabeledContent("RootFS / OCI Provisioning") {
                     Text(helperStatus)
                         .foregroundStyle(
@@ -86,7 +92,14 @@ struct SettingsView: View {
     }
 
     private var qemuStatus: String {
-        qemuAvailable ? "Available" : "Install QEMU"
+        if FileManager.default.fileExists(
+            atPath:
+                "/Applications/UTM.app/Contents/Frameworks/qemu-x86_64-softmmu.framework/qemu-x86_64-softmmu"
+        ) {
+            "Accelerated SPICE / Metal"
+        } else {
+            qemuAvailable ? "Software display" : "Install QEMU"
+        }
     }
 
     private var helperAvailable: Bool {

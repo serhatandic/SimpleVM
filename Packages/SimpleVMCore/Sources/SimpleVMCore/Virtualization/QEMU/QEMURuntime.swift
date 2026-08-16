@@ -1,21 +1,29 @@
 import Foundation
 
+public enum QEMUDisplayBackend: Equatable, Sendable {
+    case vnc
+    case spiceGL(resourceDirectoryURL: URL)
+}
+
 public struct QEMURuntime: Equatable, Sendable {
     public let systemExecutableURL: URL
     public let imageExecutableURL: URL
     public let firmwareCodeURL: URL
     public let firmwareVariablesTemplateURL: URL
+    public let displayBackend: QEMUDisplayBackend
 
     public init(
         systemExecutableURL: URL,
         imageExecutableURL: URL,
         firmwareCodeURL: URL,
-        firmwareVariablesTemplateURL: URL
+        firmwareVariablesTemplateURL: URL,
+        displayBackend: QEMUDisplayBackend = .vnc
     ) {
         self.systemExecutableURL = systemExecutableURL
         self.imageExecutableURL = imageExecutableURL
         self.firmwareCodeURL = firmwareCodeURL
         self.firmwareVariablesTemplateURL = firmwareVariablesTemplateURL
+        self.displayBackend = displayBackend
     }
 }
 
@@ -105,4 +113,3 @@ public enum QEMURuntimeError: LocalizedError, Equatable {
         }
     }
 }
-

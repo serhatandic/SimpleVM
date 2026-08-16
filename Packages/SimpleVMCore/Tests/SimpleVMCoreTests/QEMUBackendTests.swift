@@ -112,6 +112,32 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
         atPath: backendURL.appending(path: "efi-vars.fd").path
     ))
     #expect(configuration.qmpSocketURL.path.utf8.count < 104)
+
+    let accelerated = try QEMUConfigurationBuilder.make(
+        machine: machine,
+        diskURL: diskURL,
+        installerURL: nil,
+        backendStateURL: backendURL,
+        runtime: QEMURuntime(
+            systemExecutableURL: executableURL,
+            imageExecutableURL: imageExecutableURL,
+            firmwareCodeURL: codeURL,
+            firmwareVariablesTemplateURL: variablesTemplateURL,
+            displayBackend: .spiceGL(
+                resourceDirectoryURL: directory
+            )
+        ),
+        vncPort: 5_902
+    )
+    #expect(accelerated.spiceSocketURL != nil)
+    #expect(accelerated.arguments.contains("virtio-vga-gl,xres=1280,yres=800"))
+    #expect(accelerated.arguments.contains("virtio-keyboard-pci"))
+    #expect(accelerated.arguments.contains("virtio-tablet-pci"))
+    #expect(accelerated.arguments.contains("tcg,thread=multi,tb-size=2048"))
+    #expect(accelerated.arguments.contains(where: {
+        $0.contains("disable-ticketing=on,gl=on")
+    }))
+    #expect(!accelerated.arguments.contains("-vnc"))
 }
 
 @Test

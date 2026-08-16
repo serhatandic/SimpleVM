@@ -416,6 +416,19 @@ final class FoundationTests: XCTestCase {
         )
     }
 
+    func testSPICEKeyMapperCoversMappedChords() {
+        XCTAssertEqual(PCXTKeyMapper.scancode(for: 58), 0x38)
+        XCTAssertEqual(PCXTKeyMapper.scancode(for: 118), 0x3E)
+        XCTAssertEqual(PCXTKeyMapper.scancode(for: 48), 0x0F)
+        XCTAssertEqual(PCXTKeyMapper.scancode(for: 55), 0x15B)
+        XCTAssertEqual(PCXTKeyMapper.scancode(for: 121), 0x151)
+        XCTAssertEqual(PCXTKeyMapper.scancode(for: 103), 0x57)
+        XCTAssertEqual(PCXTKeyMapper.scancode(for: 105), 0x64)
+        XCTAssertEqual(PCXTKeyMapper.scancode(for: 107), 0x65)
+        XCTAssertEqual(PCXTKeyMapper.scancode(for: 109), 0x44)
+        XCTAssertEqual(PCXTKeyMapper.scancode(for: 111), 0x58)
+    }
+
     @MainActor
     func testMacOSPointerCommandMapsToGuestControl() {
         let settings = KeyboardMappingSettings.shared

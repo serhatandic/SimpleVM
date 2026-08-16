@@ -14,6 +14,8 @@ configs:
 packages:
   SimpleVMCore:
     path: Packages/SimpleVMCore
+  CocoaSpice:
+    path: Packages/CocoaSpice
 
 settings:
   base:
@@ -32,6 +34,15 @@ targets:
       - path: Resources
     dependencies:
       - package: SimpleVMCore
+      - target: UTMQEMULauncher
+      - package: CocoaSpice
+        product: CocoaSpiceNoUsb
+      - framework: /Applications/UTM.app/Contents/Frameworks/glib-2.0.0.framework
+      - framework: /Applications/UTM.app/Contents/Frameworks/gobject-2.0.0.framework
+      - framework: /Applications/UTM.app/Contents/Frameworks/gio-2.0.0.framework
+      - framework: /Applications/UTM.app/Contents/Frameworks/gmodule-2.0.0.framework
+      - framework: /Applications/UTM.app/Contents/Frameworks/gstreamer-1.0.0.framework
+      - framework: /Applications/UTM.app/Contents/Frameworks/spice-client-glib-2.0.8.framework
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.app
@@ -48,6 +59,40 @@ targets:
         ENABLE_DEBUG_DYLIB: NO
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: 0.1.0
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "@executable_path/../Frameworks"
+          - "/Applications/UTM.app/Contents/Frameworks"
+    postBuildScripts:
+      - name: Embed UTM QEMU launcher
+        inputFiles:
+          - "$(BUILT_PRODUCTS_DIR)/UTMQEMULauncher"
+        outputFiles:
+          - "$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/UTMQEMULauncher"
+        script: |
+          mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
+          cp "$BUILT_PRODUCTS_DIR/UTMQEMULauncher" \
+            "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/UTMQEMULauncher"
+
+  UTMQEMULauncher:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Tools/UTMQEMULauncher
+    dependencies:
+      - framework: /Applications/UTM.app/Contents/Frameworks/qemu-x86_64-softmmu.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.utm-qemu-launcher
+        PRODUCT_NAME: UTMQEMULauncher
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: C8Y523R7T5
+        CODE_SIGN_ENTITLEMENTS: Config/UTMQEMULauncher.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "/Applications/UTM.app/Contents/Frameworks"
 
   SimpleVMAppTests:
     type: bundle.unit-test
