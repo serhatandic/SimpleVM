@@ -87,6 +87,19 @@ final class FoundationTests: XCTestCase {
 
         XCTAssertNoThrow(try first.validate())
         XCTAssertNoThrow(try second.validate())
+        let graphics = try XCTUnwrap(
+            first.graphicsDevices.first
+                as? VZVirtioGraphicsDeviceConfiguration
+        )
+        let scanout = try XCTUnwrap(graphics.scanouts.first)
+        XCTAssertEqual(
+            scanout.widthInPixels,
+            AppleVirtualMachineConfigurationFactory.defaultDisplayWidth
+        )
+        XCTAssertEqual(
+            scanout.heightInPixels,
+            AppleVirtualMachineConfigurationFactory.defaultDisplayHeight
+        )
         XCTAssertEqual(try Data(contentsOf: identifierURL), firstIdentifier)
         XCTAssertTrue(
             FileManager.default.fileExists(

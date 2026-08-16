@@ -2,6 +2,9 @@ import Foundation
 import Virtualization
 
 public enum AppleVirtualMachineConfigurationFactory {
+    public static let defaultDisplayWidth = 1_280
+    public static let defaultDisplayHeight = 800
+
     @MainActor
     public static func make(
         machine: Machine,
@@ -120,8 +123,8 @@ public enum AppleVirtualMachineConfigurationFactory {
         let device = VZVirtioGraphicsDeviceConfiguration()
         device.scanouts = [
             VZVirtioGraphicsScanoutConfiguration(
-                widthInPixels: 1_920,
-                heightInPixels: 1_080
+                widthInPixels: defaultDisplayWidth,
+                heightInPixels: defaultDisplayHeight
             )
         ]
         return device
