@@ -118,7 +118,7 @@ final class MachineRuntime {
 
     func sendGuestKeyEvent(_ event: GuestKeyEvent) {
         guard displayView != nil,
-              let source = CGEventSource(stateID: .privateState),
+              let source = CGEventSource(stateID: .hidSystemState),
               let cgEvent = CGEvent(
                 keyboardEventSource: source,
                 virtualKey: CGKeyCode(event.keyCode),
@@ -151,7 +151,7 @@ final class MachineRuntime {
         } else {
             pressedKeyEvents.removeValue(forKey: event.keyCode)
         }
-        cgEvent.postToPid(getpid())
+        cgEvent.post(tap: .cghidEventTap)
     }
 
     func releaseAllKeys() {
