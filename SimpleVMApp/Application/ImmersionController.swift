@@ -38,6 +38,10 @@ final class ImmersionController {
     @ObservationIgnored
     private var fallbackEventMonitor: Any?
 
+    init() {
+        KarabinerInputBridge.setImmersionActive(false)
+    }
+
     func enter(
         machineID: UUID,
         keyEventHandler: @escaping (GuestKeyEvent) -> Void,
@@ -55,7 +59,11 @@ final class ImmersionController {
         if usesKarabinerInput {
             do {
                 try KarabinerInputBridge.prepare()
-                KarabinerInputBridge.setImmersionActive(true)
+                guard KarabinerInputBridge.setImmersionActive(true) else {
+                    throw KarabinerBridgeError.commandFailed(
+                        "Unable to activate SimpleVM mappings."
+                    )
+                }
                 karabinerErrorMessage = nil
             } catch {
                 karabinerErrorMessage = error.localizedDescription
@@ -129,7 +137,13 @@ final class ImmersionController {
                    self.karabinerErrorMessage != nil {
                     do {
                         try KarabinerInputBridge.prepare()
-                        KarabinerInputBridge.setImmersionActive(true)
+                        guard KarabinerInputBridge.setImmersionActive(
+                            true
+                        ) else {
+                            throw KarabinerBridgeError.commandFailed(
+                                "Unable to activate SimpleVM mappings."
+                            )
+                        }
                         self.karabinerErrorMessage = nil
                     } catch {
                         self.karabinerErrorMessage =

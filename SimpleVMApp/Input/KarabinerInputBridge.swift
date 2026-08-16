@@ -22,18 +22,31 @@ enum KarabinerInputBridge {
         guard isInstalled else {
             throw KarabinerBridgeError.notInstalled
         }
+        let devices = try runCLI(["--list-connected-devices"])
+        guard devices.contains("Karabiner DriverKit VirtualHIDKeyboard") else {
+            throw KarabinerBridgeError.virtualKeyboardUnavailable
+        }
         try installRules()
+        let profile = try runCLI(["--show-current-profile-name"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !profile.isEmpty else {
+            throw KarabinerBridgeError.invalidConfiguration
+        }
+        _ = try runCLI(["--select-profile", profile])
     }
 
-    static func setImmersionActive(_ active: Bool) {
-        guard isInstalled else { return }
-        let process = Process()
-        process.executableURL = cliURL
-        process.arguments = [
+    @discardableResult
+    static func setImmersionActive(_ active: Bool) -> Bool {
+        guard isInstalled else { return false }
+        do {
+            _ = try runCLI([
             "--set-variables",
             "{\"\\(variableName)\":\\(active ? 1 : 0)}"
-        ]
-        try? process.run()
+            ])
+            return true
+        } catch {
+            return false
+        }
     }
 
     private static func installRules() throws {
@@ -166,21 +179,47 @@ enum KarabinerInputBridge {
             ]
         ]
     }
+
+    private static func runCLI(_ arguments: [String]) throws -> String {
+        let process = Process()
+        let output = Pipe()
+        let errorOutput = Pipe()
+        process.executableURL = cliURL
+        process.arguments = arguments
+        process.standardOutput = output
+        process.standardError = errorOutput
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let data = errorOutput.fileHandleForReading.readDataToEndOfFile()
+            throw KarabinerBridgeError.commandFailed(
+                String(decoding: data, as: UTF8.self)
+            )
+        }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        return String(decoding: data, as: UTF8.self)
+    }
 }
 
 enum KarabinerBridgeError: LocalizedError {
     case notInstalled
+    case virtualKeyboardUnavailable
     case configurationUnavailable
     case invalidConfiguration
+    case commandFailed(String)
 
     var errorDescription: String? {
         switch self {
         case .notInstalled:
             "Karabiner-Elements is not installed."
+        case .virtualKeyboardUnavailable:
+            "Karabiner's virtual keyboard is not active."
         case .configurationUnavailable:
             "Open Karabiner-Elements once to create its configuration."
         case .invalidConfiguration:
             "Karabiner-Elements configuration is invalid."
+        case .commandFailed(let message):
+            "Karabiner command failed: \(message)"
         }
     }
 }

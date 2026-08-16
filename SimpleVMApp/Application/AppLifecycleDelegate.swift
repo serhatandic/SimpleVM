@@ -7,6 +7,10 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
 
     private var isTerminating = false
 
+    func applicationWillTerminate(_ notification: Notification) {
+        KarabinerInputBridge.setImmersionActive(false)
+    }
+
     func applicationShouldTerminate(
         _ sender: NSApplication
     ) -> NSApplication.TerminateReply {
@@ -24,4 +28,3 @@ final class AppLifecycleDelegate: NSObject, NSApplicationDelegate {
         return .terminateLater
     }
 }
-
