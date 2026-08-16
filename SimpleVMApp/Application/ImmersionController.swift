@@ -39,7 +39,7 @@ final class ImmersionController {
 
     func enter(
         machineID: UUID,
-        keyEventHandler: @escaping (NSEvent) -> Void,
+        keyEventHandler: @escaping (GuestKeyEvent) -> Void,
         releaseKeysHandler: @escaping () -> Void
     ) {
         guard activeMachineID == nil, let window = NSApp.keyWindow else {
@@ -145,6 +145,7 @@ final class ImmersionController {
         activeMachineID = nil
         showsExitHint = false
         requiresAccessibilityPermission = false
+        KeyboardMappingSettings.shared.deactivateMachinePreset()
         window?.toolbar?.isVisible = true
 
         if enteredFullScreen, window?.styleMask.contains(.fullScreen) == true {

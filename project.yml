@@ -61,8 +61,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.app-tests
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGN_IDENTITY: "-"
-        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: C8Y523R7T5
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SimpleVM.app/Contents/MacOS/SimpleVM"
         BUNDLE_LOADER: "$(TEST_HOST)"
 
@@ -77,8 +78,9 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.ui-tests
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGN_IDENTITY: "-"
-        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "Apple Development"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: C8Y523R7T5
         TEST_TARGET_NAME: SimpleVM
 
 schemes:

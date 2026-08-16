@@ -116,6 +116,42 @@ final class MachineRuntime {
         }
     }
 
+    func sendGuestKeyEvent(_ event: GuestKeyEvent) {
+        guard let displayView,
+              let cgEvent = CGEvent(
+                keyboardEventSource: nil,
+                virtualKey: CGKeyCode(event.keyCode),
+                keyDown: event.isDown
+              ) else {
+            return
+        }
+        cgEvent.flags = cgFlags(from: event.modifiers)
+        cgEvent.setIntegerValueField(
+            .keyboardEventAutorepeat,
+            value: event.isRepeat ? 1 : 0
+        )
+        if event.isModifier {
+            cgEvent.type = .flagsChanged
+        }
+        guard let nsEvent = NSEvent(cgEvent: cgEvent) else { return }
+        if event.isModifier {
+            if event.isDown {
+                pressedModifierKeyCodes.insert(event.keyCode)
+            } else {
+                pressedModifierKeyCodes.remove(event.keyCode)
+            }
+            displayView.flagsChanged(with: nsEvent)
+        } else if event.isDown {
+            if !event.isRepeat {
+                pressedKeyEvents[event.keyCode] = nsEvent
+            }
+            displayView.keyDown(with: nsEvent)
+        } else {
+            pressedKeyEvents.removeValue(forKey: event.keyCode)
+            displayView.keyUp(with: nsEvent)
+        }
+    }
+
     func releaseAllKeys() {
         if let displayView {
             for event in pressedKeyEvents.values {
@@ -173,6 +209,17 @@ final class MachineRuntime {
         pressedKeyEvents.removeAll()
         virtualMachine = nil
         virtualMachineDelegate = nil
+    }
+
+    private func cgFlags(
+        from flags: NSEvent.ModifierFlags
+    ) -> CGEventFlags {
+        var result: CGEventFlags = []
+        if flags.contains(.control) { result.insert(.maskControl) }
+        if flags.contains(.option) { result.insert(.maskAlternate) }
+        if flags.contains(.shift) { result.insert(.maskShift) }
+        if flags.contains(.command) { result.insert(.maskCommand) }
+        return result
     }
 }
 

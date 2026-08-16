@@ -8,12 +8,14 @@ import SimpleVMCore
 @Observable
 final class QEMUMachineRuntime {
     private(set) var state: MachineRuntimeState
-    private(set) var framebuffer: CGImage?
+    private(set) var hasDisplay = false
     private(set) var requiresDiskPassword = false
 
-    var hasDisplay: Bool {
-        framebuffer != nil
-    }
+    @ObservationIgnored
+    private(set) var framebuffer: CGImage?
+
+    @ObservationIgnored
+    weak var displayView: QEMUFramebufferNSView?
 
     @ObservationIgnored
     var stateHandler: ((MachineRuntimeState) -> Void)?
@@ -26,6 +28,9 @@ final class QEMUMachineRuntime {
 
     @ObservationIgnored
     private var vncClient: SimpleVNCClient?
+
+    @ObservationIgnored
+    var keySink: ((UInt32, Bool) -> Void)?
 
     @ObservationIgnored
     private var diagnosticURL: URL?
@@ -137,7 +142,11 @@ final class QEMUMachineRuntime {
     }
 
     func sendKey(_ keysym: UInt32, isDown: Bool) {
-        vncClient?.sendKey(keysym, isDown: isDown)
+        if let keySink {
+            keySink(keysym, isDown)
+        } else {
+            vncClient?.sendKey(keysym, isDown: isDown)
+        }
     }
 
     func sendPointer(mask: UInt8, x: UInt16, y: UInt16) {
@@ -147,7 +156,7 @@ final class QEMUMachineRuntime {
     func requestDisplaySize(width: Int, height: Int) {
         let scale = min(
             1,
-            min(1_920 / Double(max(width, 1)), 1_200 / Double(max(height, 1)))
+            min(1_280 / Double(max(width, 1)), 800 / Double(max(height, 1)))
         )
         let width = UInt16(clamping: max(Int(Double(width) * scale), 640))
         let height = UInt16(clamping: max(Int(Double(height) * scale), 480))
@@ -201,6 +210,24 @@ final class QEMUMachineRuntime {
         }
     }
 
+    func sendGuestKeyEvent(_ event: GuestKeyEvent) {
+        guard let keysym = QEMUKeyMapper.keysym(for: event) else { return }
+        if event.isDown {
+            pressedKeysyms.insert(keysym)
+            if event.isModifier {
+                pressedModifierKeyCodes.insert(event.keyCode)
+            }
+        } else {
+            pressedKeysyms.remove(keysym)
+            pressedModifierKeyCodes.remove(event.keyCode)
+        }
+        sendKey(keysym, isDown: event.isDown)
+        if !event.isDown,
+           event.keyCode == 36 || event.keyCode == 76 {
+            requiresDiskPassword = false
+        }
+    }
+
     func releaseAllKeys() {
         for keysym in pressedKeysyms {
             sendKey(keysym, isDown: false)
@@ -229,7 +256,12 @@ final class QEMUMachineRuntime {
             client.imageHandler = { [weak self] image in
                 let image = CGImageBox(image)
                 Task { @MainActor in
-                    self?.framebuffer = image.value
+                    guard let self else { return }
+                    self.framebuffer = image.value
+                    self.displayView?.image = image.value
+                    if !self.hasDisplay {
+                        self.hasDisplay = true
+                    }
                 }
             }
             client.errorHandler = { [weak self] error in
@@ -317,6 +349,9 @@ final class QEMUMachineRuntime {
         vncClient?.disconnect()
         vncClient = nil
         framebuffer = nil
+        displayView?.image = nil
+        displayView = nil
+        hasDisplay = false
         processController = nil
         pressedKeysyms.removeAll()
         pressedModifierKeyCodes.removeAll()

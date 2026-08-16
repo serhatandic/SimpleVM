@@ -164,7 +164,8 @@ public final class SimpleVNCClient: @unchecked Sendable {
         try send(pixelFormat)
 
         var encodings = Data([2, 0])
-        encodings.appendBigEndian(UInt16(3))
+        encodings.appendBigEndian(UInt16(4))
+        encodings.appendBigEndian(UInt32(1))
         encodings.appendBigEndian(UInt32(0))
         encodings.appendBigEndian(UInt32(bitPattern: -223))
         encodings.appendBigEndian(UInt32(bitPattern: -308))
@@ -234,9 +235,22 @@ public final class SimpleVNCClient: @unchecked Sendable {
                 }
                 continue
             }
+            if encoding == 1 {
+                let source = try receiveExactly(4)
+                copyRectangle(
+                    sourceX: Int(source.readUInt16BigEndian(at: 0)),
+                    sourceY: Int(source.readUInt16BigEndian(at: 2)),
+                    destinationX: x,
+                    destinationY: y,
+                    rectangleWidth: rectangleWidth,
+                    rectangleHeight: rectangleHeight
+                )
+                continue
+            }
             guard encoding == 0 else {
                 throw SimpleVNCError.unsupportedEncoding(encoding)
             }
+
             let pixels = try receiveExactly(
                 rectangleWidth * rectangleHeight * 4
             )
@@ -250,6 +264,57 @@ public final class SimpleVNCClient: @unchecked Sendable {
         }
         publishImage()
         try requestUpdate(incremental: true)
+    }
+
+    private func copyRectangle(
+        sourceX: Int,
+        sourceY: Int,
+        destinationX: Int,
+        destinationY: Int,
+        rectangleWidth: Int,
+        rectangleHeight: Int
+    ) {
+        guard rectangleWidth > 0,
+              rectangleHeight > 0,
+              sourceX >= 0,
+              sourceY >= 0,
+              destinationX >= 0,
+              destinationY >= 0,
+              sourceX + rectangleWidth <= width,
+              destinationX + rectangleWidth <= width,
+              sourceY + rectangleHeight <= height,
+              destinationY + rectangleHeight <= height else {
+            return
+        }
+        let rowBytes = rectangleWidth * 4
+        var snapshot = Data(
+            repeating: 0,
+            count: rowBytes * rectangleHeight
+        )
+        snapshot.withUnsafeMutableBytes { destination in
+            framebuffer.withUnsafeBytes { source in
+                for row in 0..<rectangleHeight {
+                    let sourceOffset =
+                        ((sourceY + row) * width + sourceX) * 4
+                    let destinationOffset = row * rowBytes
+                    destination.baseAddress?
+                        .advanced(by: destinationOffset)
+                        .copyMemory(
+                            from: source.baseAddress!.advanced(
+                                by: sourceOffset
+                            ),
+                            byteCount: rowBytes
+                        )
+                }
+            }
+        }
+        copy(
+            pixels: snapshot,
+            x: destinationX,
+            y: destinationY,
+            width: rectangleWidth,
+            height: rectangleHeight
+        )
     }
 
     private func copy(

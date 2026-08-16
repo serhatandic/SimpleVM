@@ -2,7 +2,6 @@ import AppKit
 import SwiftUI
 
 struct QEMUMachineDisplayView: NSViewRepresentable {
-    let image: CGImage
     let runtime: QEMUMachineRuntime
     let isImmersive: Bool
     let pointerInteractionHandler:
@@ -11,7 +10,8 @@ struct QEMUMachineDisplayView: NSViewRepresentable {
     func makeNSView(context: Context) -> QEMUFramebufferNSView {
         let view = QEMUFramebufferNSView()
         view.runtime = runtime
-        view.image = image
+        view.image = runtime.framebuffer
+        runtime.displayView = view
         view.isImmersive = isImmersive
         view.pointerInteractionHandler = pointerInteractionHandler
         DispatchQueue.main.async {
@@ -22,7 +22,10 @@ struct QEMUMachineDisplayView: NSViewRepresentable {
 
     func updateNSView(_ view: QEMUFramebufferNSView, context: Context) {
         view.runtime = runtime
-        view.image = image
+        runtime.displayView = view
+        if view.image == nil {
+            view.image = runtime.framebuffer
+        }
         view.isImmersive = isImmersive
         view.pointerInteractionHandler = pointerInteractionHandler
         if isImmersive {
@@ -38,7 +41,6 @@ final class QEMUFramebufferNSView: NSView {
     var image: CGImage? {
         didSet {
             layer?.contents = image
-            needsDisplay = true
         }
     }
     private var trackingAreaReference: NSTrackingArea?
@@ -293,10 +295,9 @@ final class QEMUFramebufferNSView: NSView {
     }
 
     private func fittedIntegerSize() -> CGSize {
-        let backingSize = convertToBacking(bounds).size
         return CGSize(
-            width: max(640, backingSize.width.rounded()),
-            height: max(480, backingSize.height.rounded())
+            width: max(640, bounds.width.rounded()),
+            height: max(480, bounds.height.rounded())
         )
     }
 
@@ -310,6 +311,12 @@ final class QEMUFramebufferNSView: NSView {
 }
 
 enum QEMUKeyMapper {
+    static func keysym(for event: GuestKeyEvent) -> UInt32? {
+        event.isModifier
+            ? modifierKeysym(for: event.keyCode)
+            : keysym(forKeyCode: event.keyCode)
+    }
+
     static func keysym(for event: NSEvent) -> UInt32? {
         guard event.type == .keyDown || event.type == .keyUp else {
             return modifierKeysym(for: event.keyCode)
@@ -330,6 +337,7 @@ enum QEMUKeyMapper {
         case 7: return 0x78
         case 8: return 0x63
         case 9: return 0x76
+        case 10: return 0xa7
         case 11: return 0x62
         case 12: return 0x71
         case 13: return 0x77
@@ -355,7 +363,7 @@ enum QEMUKeyMapper {
         case 33: return 0x5b
         case 34: return 0x69
         case 35: return 0x70
-        case 36, 76: return 0xff0d
+        case 36: return 0xff0d
         case 37: return 0x6c
         case 38: return 0x6a
         case 39: return 0x27
@@ -381,6 +389,24 @@ enum QEMUKeyMapper {
         case 60: return 0xffe2
         case 61: return 0xffea
         case 62: return 0xffe4
+        case 65: return 0xffae
+        case 67: return 0xffaa
+        case 69: return 0xffab
+        case 71: return 0xff7f
+        case 75: return 0xffaf
+        case 76: return 0xff8d
+        case 78: return 0xffad
+        case 81: return 0xffbd
+        case 82: return 0xffb0
+        case 83: return 0xffb1
+        case 84: return 0xffb2
+        case 85: return 0xffb3
+        case 86: return 0xffb4
+        case 87: return 0xffb5
+        case 88: return 0xffb6
+        case 89: return 0xffb7
+        case 91: return 0xffb8
+        case 92: return 0xffb9
         case 115: return 0xff50
         case 116: return 0xff55
         case 117: return 0xffff

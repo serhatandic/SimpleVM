@@ -185,9 +185,8 @@ struct MachineDetailView: View {
                 }
             case .qemu:
                 let runtime = model.qemuRuntime(for: machine)
-                if let framebuffer = runtime.framebuffer {
+                if runtime.hasDisplay {
                     QEMUMachineDisplayView(
-                        image: framebuffer,
                         runtime: runtime,
                         isImmersive: immersion.isActive(
                             machineID: machine.id
@@ -276,13 +275,16 @@ struct MachineDetailView: View {
     }
 
     private func enterImmersion() {
+        KeyboardMappingSettings.shared.activatePreset(
+            forMachineNamed: machine.name
+        )
         switch machine.backend {
         case .appleVirtualization:
             let runtime = model.appleRuntime(for: machine)
             immersion.enter(
                 machineID: machine.id,
                 keyEventHandler: { event in
-                    runtime.sendKeyEvent(event)
+                    runtime.sendGuestKeyEvent(event)
                 },
                 releaseKeysHandler: {
                     runtime.releaseAllKeys()
@@ -293,7 +295,7 @@ struct MachineDetailView: View {
             immersion.enter(
                 machineID: machine.id,
                 keyEventHandler: { event in
-                    runtime.sendKeyEvent(event)
+                    runtime.sendGuestKeyEvent(event)
                 },
                 releaseKeysHandler: {
                     runtime.releaseAllKeys()

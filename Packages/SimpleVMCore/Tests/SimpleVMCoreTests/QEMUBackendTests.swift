@@ -83,7 +83,8 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
         vncPort: 5_901
     )
 
-    #expect(configuration.arguments.contains("q35,accel=tcg,hpet=off"))
+    #expect(configuration.arguments.contains("q35,hpet=off"))
+    #expect(configuration.arguments.contains("tcg,tb-size=1024"))
     #expect(configuration.arguments.contains("max"))
     #expect(configuration.arguments.contains("Compatibility,, Test"))
     #expect(configuration.arguments.contains("127.0.0.1:1"))

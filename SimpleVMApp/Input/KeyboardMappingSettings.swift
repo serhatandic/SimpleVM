@@ -14,6 +14,14 @@ struct GuestChord: Equatable {
     let modifiers: NSEvent.ModifierFlags
 }
 
+struct GuestKeyEvent: Equatable {
+    let keyCode: UInt16
+    let isDown: Bool
+    let isRepeat: Bool
+    let modifiers: NSEvent.ModifierFlags
+    let isModifier: Bool
+}
+
 private struct HostChord: Hashable {
     let keyCode: UInt16
     let modifiers: NSEvent.ModifierFlags
@@ -35,6 +43,9 @@ final class KeyboardMappingSettings {
         }
     }
 
+    @ObservationIgnored
+    private var activeMachinePreset: KeyboardPreset?
+
     init() {
         preset = KeyboardPreset(
             rawValue: UserDefaults.standard.string(
@@ -53,7 +64,7 @@ final class KeyboardMappingSettings {
             .control,
             .shift
         ])
-        guard preset != .passthrough else {
+        guard effectivePreset != .passthrough else {
             return GuestChord(keyCode: keyCode, modifiers: normalized)
         }
         return mappings[
@@ -62,7 +73,7 @@ final class KeyboardMappingSettings {
     }
 
     func workspaceChord(direction: WorkspaceSwipeDirection) -> GuestChord {
-        switch preset {
+        switch effectivePreset {
         case .hyprland:
             return GuestChord(
                 keyCode: direction == .next ? 48 : 48,
@@ -88,7 +99,7 @@ final class KeyboardMappingSettings {
             .control,
             .shift
         ])
-        if preset == .macOS, result.contains(.command) {
+        if effectivePreset == .macOS, result.contains(.command) {
             result.remove(.command)
             result.insert(.control)
         }
@@ -96,7 +107,7 @@ final class KeyboardMappingSettings {
     }
 
     var mappingDescriptions: [(host: String, guest: String)] {
-        switch preset {
+        switch effectivePreset {
         case .passthrough:
             [("Command", "Super"), ("Option", "Alt"), ("Control", "Control")]
         case .macOS:
@@ -153,7 +164,7 @@ final class KeyboardMappingSettings {
         add(51, [.option], [.control])
         add(117, [.option], [.control])
 
-        switch preset {
+        switch effectivePreset {
         case .macOS:
             add(13, [.command], [.control])
             add(12, [.command], [.option], guestKeyCode: 118)
@@ -174,6 +185,23 @@ final class KeyboardMappingSettings {
             break
         }
         return result
+    }
+
+    func activatePreset(forMachineNamed name: String) {
+        let normalized = name.lowercased()
+        activeMachinePreset =
+            normalized.contains("omarchy")
+            || normalized.contains("hyprland")
+            ? .hyprland
+            : preset
+    }
+
+    func deactivateMachinePreset() {
+        activeMachinePreset = nil
+    }
+
+    private var effectivePreset: KeyboardPreset {
+        activeMachinePreset ?? preset
     }
 
     private static let sharedDescriptions = [

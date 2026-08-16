@@ -26,7 +26,7 @@ final class ImmersiveInputCapture {
     private var dockSwipeProgress = 0.0
 
     init(
-        keyEventHandler: @escaping (NSEvent) -> Void,
+        keyEventHandler: @escaping (GuestKeyEvent) -> Void,
         workspaceSwipeHandler: @escaping (WorkspaceSwipeDirection) -> Void
     ) {
         self.workspaceSwipeHandler = workspaceSwipeHandler
@@ -253,14 +253,14 @@ final class ImmersiveInputCapture {
 
 @MainActor
 final class GuestInputRouter {
-    private let keyEventHandler: (NSEvent) -> Void
+    private let keyEventHandler: (GuestKeyEvent) -> Void
     private var activeChords: [UInt16: GuestChord] = [:]
     private var guestModifierFlags: NSEvent.ModifierFlags = []
     private var pointerModifierFlags: NSEvent.ModifierFlags = []
     private var hostModifierFlags: NSEvent.ModifierFlags = []
     private var latchedModifierFlags: NSEvent.ModifierFlags = []
 
-    init(keyEventHandler: @escaping (NSEvent) -> Void) {
+    init(keyEventHandler: @escaping (GuestKeyEvent) -> Void) {
         self.keyEventHandler = keyEventHandler
     }
 
@@ -404,16 +404,17 @@ final class GuestInputRouter {
         keyCode: UInt16,
         flags: NSEvent.ModifierFlags
     ) {
-        guard let event = CGEvent(
-            keyboardEventSource: nil,
-            virtualKey: CGKeyCode(keyCode),
-            keyDown: flags.contains(
-                QEMUKeyMapper.modifierFlag(for: keyCode) ?? []
+        keyEventHandler(
+            GuestKeyEvent(
+                keyCode: keyCode,
+                isDown: flags.contains(
+                    QEMUKeyMapper.modifierFlag(for: keyCode) ?? []
+                ),
+                isRepeat: false,
+                modifiers: flags,
+                isModifier: true
             )
-        ) else { return }
-        event.type = .flagsChanged
-        event.flags = cgFlags(from: flags)
-        deliver(event)
+        )
     }
 
     private func emitKey(
@@ -422,22 +423,15 @@ final class GuestInputRouter {
         modifiers: NSEvent.ModifierFlags,
         repeats: Bool
     ) {
-        guard let event = CGEvent(
-            keyboardEventSource: nil,
-            virtualKey: CGKeyCode(keyCode),
-            keyDown: isDown
-        ) else { return }
-        event.flags = cgFlags(from: normalized(modifiers))
-        event.setIntegerValueField(
-            .keyboardEventAutorepeat,
-            value: repeats ? 1 : 0
+        keyEventHandler(
+            GuestKeyEvent(
+                keyCode: keyCode,
+                isDown: isDown,
+                isRepeat: repeats,
+                modifiers: normalized(modifiers),
+                isModifier: false
+            )
         )
-        deliver(event)
-    }
-
-    private func deliver(_ event: CGEvent) {
-        guard let event = NSEvent(cgEvent: event) else { return }
-        keyEventHandler(event)
     }
 
     private func normalized(
@@ -446,16 +440,6 @@ final class GuestInputRouter {
         flags.intersection([.control, .option, .shift, .command])
     }
 
-    private func cgFlags(
-        from flags: NSEvent.ModifierFlags
-    ) -> CGEventFlags {
-        var result: CGEventFlags = []
-        if flags.contains(.control) { result.insert(.maskControl) }
-        if flags.contains(.option) { result.insert(.maskAlternate) }
-        if flags.contains(.shift) { result.insert(.maskShift) }
-        if flags.contains(.command) { result.insert(.maskCommand) }
-        return result
-    }
 }
 
 extension Notification.Name {

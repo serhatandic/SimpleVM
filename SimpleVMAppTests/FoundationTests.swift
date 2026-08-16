@@ -156,7 +156,7 @@ final class FoundationTests: XCTestCase {
 
     @MainActor
     func testGuestInputRouterEmitsBalancedMappedChord() {
-        var events: [NSEvent] = []
+        var events: [GuestKeyEvent] = []
         let router = GuestInputRouter { events.append($0) }
         router.press(
             hostKeyCode: 8,
@@ -166,43 +166,43 @@ final class FoundationTests: XCTestCase {
         router.release(hostKeyCode: 8)
 
         XCTAssertEqual(
-            events.map(\.type),
-            [.flagsChanged, .keyDown, .keyUp, .flagsChanged]
+            events.map(\.isDown),
+            [true, true, false, false]
         )
         XCTAssertEqual(events.map(\.keyCode), [59, 8, 8, 59])
-        XCTAssertTrue(events[0].modifierFlags.contains(.control))
-        XCTAssertFalse(events[3].modifierFlags.contains(.control))
+        XCTAssertTrue(events[0].modifiers.contains(.control))
+        XCTAssertFalse(events[3].modifiers.contains(.control))
         XCTAssertFalse(events.contains(where: { $0.keyCode == 55 }))
     }
 
     @MainActor
     func testPointerInteractionEmitsBalancedGuestSuper() {
-        var events: [NSEvent] = []
+        var events: [GuestKeyEvent] = []
         let router = GuestInputRouter { events.append($0) }
 
         router.beginPointerInteraction(modifiers: [.command])
         router.endPointerInteraction()
 
-        XCTAssertEqual(events.map(\.type), [.flagsChanged, .flagsChanged])
+        XCTAssertEqual(events.map(\.isDown), [true, false])
         XCTAssertEqual(events.map(\.keyCode), [55, 55])
-        XCTAssertTrue(events[0].modifierFlags.contains(.command))
-        XCTAssertFalse(events[1].modifierFlags.contains(.command))
+        XCTAssertTrue(events[0].modifiers.contains(.command))
+        XCTAssertFalse(events[1].modifiers.contains(.command))
     }
 
     @MainActor
     func testSyntheticModifierEventsHaveCorrectDirection() {
-        var events: [NSEvent] = []
+        var events: [GuestKeyEvent] = []
         let router = GuestInputRouter { events.append($0) }
         router.beginPointerInteraction(modifiers: [.control])
         router.endPointerInteraction()
 
-        XCTAssertTrue(QEMUKeyMapper.isModifierDown(events[0]))
-        XCTAssertFalse(QEMUKeyMapper.isModifierDown(events[1]))
+        XCTAssertTrue(events[0].isDown)
+        XCTAssertFalse(events[1].isDown)
     }
 
     @MainActor
     func testHeldHostModifierKeepsGuestSwitcherOpen() {
-        var events: [NSEvent] = []
+        var events: [GuestKeyEvent] = []
         let router = GuestInputRouter { events.append($0) }
         router.updateHostModifiers([.command])
         router.press(
@@ -213,13 +213,168 @@ final class FoundationTests: XCTestCase {
         router.release(hostKeyCode: 48)
 
         XCTAssertEqual(
-            events.map(\.type),
-            [.flagsChanged, .keyDown, .keyUp]
+            events.map(\.isDown),
+            [true, true, false]
         )
         router.updateHostModifiers([])
-        XCTAssertEqual(events.last?.type, .flagsChanged)
+        XCTAssertTrue(events.last?.isModifier ?? false)
         XCTAssertEqual(events.last?.keyCode, 58)
-        XCTAssertFalse(events.last?.modifierFlags.contains(.option) ?? true)
+        XCTAssertFalse(events.last?.modifiers.contains(.option) ?? true)
+    }
+
+    @MainActor
+    func testMappedShortcutsEmitModifiersBeforeGuestKeys() {
+        let settings = KeyboardMappingSettings.shared
+        let previousPreset = settings.preset
+        defer { settings.preset = previousPreset }
+        settings.preset = .macOS
+
+        for (hostKey, expectedKey, expectedModifier, modifierKey) in [
+            (UInt16(12), UInt16(118), NSEvent.ModifierFlags.option, UInt16(58)),
+            (UInt16(48), UInt16(48), NSEvent.ModifierFlags.option, UInt16(58))
+        ] {
+            var events: [GuestKeyEvent] = []
+            let router = GuestInputRouter { events.append($0) }
+            router.press(
+                hostKeyCode: hostKey,
+                chord: settings.chord(
+                    keyCode: hostKey,
+                    modifiers: [.command]
+                ),
+                repeats: false
+            )
+            router.release(hostKeyCode: hostKey)
+            router.updateHostModifiers([])
+
+            XCTAssertEqual(events.first?.keyCode, modifierKey)
+            XCTAssertEqual(events.first?.isDown, true)
+            XCTAssertEqual(events[1].keyCode, expectedKey)
+            XCTAssertTrue(events[1].modifiers.contains(expectedModifier))
+        }
+
+        var swipeEvents: [GuestKeyEvent] = []
+        let swipeRouter = GuestInputRouter { swipeEvents.append($0) }
+        swipeRouter.sendChord(
+            settings.workspaceChord(direction: .next)
+        )
+        XCTAssertEqual(swipeEvents.first?.keyCode, 55)
+        XCTAssertEqual(swipeEvents.first?.isDown, true)
+        XCTAssertEqual(swipeEvents[1].keyCode, 121)
+        XCTAssertTrue(swipeEvents[1].modifiers.contains(.command))
+    }
+
+    @MainActor
+    func testMappedShortcutsResolveToQEMUModifierKeysyms() {
+        let settings = KeyboardMappingSettings.shared
+        let previousPreset = settings.preset
+        defer { settings.preset = previousPreset }
+        settings.preset = .macOS
+        var events: [GuestKeyEvent] = []
+        let router = GuestInputRouter { events.append($0) }
+
+        router.press(
+            hostKeyCode: 12,
+            chord: settings.chord(
+                keyCode: 12,
+                modifiers: [.command]
+            ),
+            repeats: false
+        )
+        router.release(hostKeyCode: 12)
+
+        XCTAssertEqual(
+            events.compactMap(QEMUKeyMapper.keysym(for:)),
+            [0xffe9, 0xffc1, 0xffc1, 0xffe9]
+        )
+        XCTAssertEqual(QEMUKeyMapper.keysym(for: events.last!), 0xffe9)
+        XCTAssertFalse(events.last!.isDown)
+    }
+
+    @MainActor
+    func testOmarchyAutomaticallyUsesHyprlandMappings() {
+        let settings = KeyboardMappingSettings.shared
+        let previousPreset = settings.preset
+        defer {
+            settings.deactivateMachinePreset()
+            settings.preset = previousPreset
+        }
+        settings.preset = .macOS
+        settings.activatePreset(forMachineNamed: "omarchy-4.0.0")
+
+        XCTAssertEqual(
+            settings.chord(keyCode: 12, modifiers: [.command]),
+            GuestChord(keyCode: 12, modifiers: [.command])
+        )
+        XCTAssertEqual(
+            settings.chord(keyCode: 48, modifiers: [.command]),
+            GuestChord(keyCode: 48, modifiers: [.command])
+        )
+        XCTAssertEqual(
+            settings.workspaceChord(direction: .next),
+            GuestChord(keyCode: 48, modifiers: [.command])
+        )
+    }
+
+    @MainActor
+    func testQEMUKeyMapperCoversNumericKeypad() {
+        let keypad: [UInt16: UInt32] = [
+            65: 0xffae,
+            67: 0xffaa,
+            69: 0xffab,
+            75: 0xffaf,
+            76: 0xff8d,
+            78: 0xffad,
+            81: 0xffbd,
+            82: 0xffb0,
+            92: 0xffb9
+        ]
+        for (keyCode, keysym) in keypad {
+            XCTAssertEqual(
+                QEMUKeyMapper.keysym(forKeyCode: keyCode),
+                keysym
+            )
+        }
+    }
+
+    @MainActor
+    func testQEMURuntimePreservesMappedModifierSequence() {
+        let runtime = QEMUMachineRuntime()
+        var transmitted: [(UInt32, Bool)] = []
+        runtime.keySink = { transmitted.append(($0, $1)) }
+        let events = [
+            GuestKeyEvent(
+                keyCode: 58,
+                isDown: true,
+                isRepeat: false,
+                modifiers: [.option],
+                isModifier: true
+            ),
+            GuestKeyEvent(
+                keyCode: 118,
+                isDown: true,
+                isRepeat: false,
+                modifiers: [.option],
+                isModifier: false
+            ),
+            GuestKeyEvent(
+                keyCode: 118,
+                isDown: false,
+                isRepeat: false,
+                modifiers: [.option],
+                isModifier: false
+            ),
+            GuestKeyEvent(
+                keyCode: 58,
+                isDown: false,
+                isRepeat: false,
+                modifiers: [],
+                isModifier: true
+            )
+        ]
+        events.forEach(runtime.sendGuestKeyEvent)
+
+        XCTAssertEqual(transmitted.map(\.0), [0xffe9, 0xffc1, 0xffc1, 0xffe9])
+        XCTAssertEqual(transmitted.map(\.1), [true, true, false, false])
     }
 
     @MainActor

@@ -71,9 +71,10 @@ public enum QEMUConfigurationBuilder {
             .joined(separator: ",")
         var arguments = [
             "-name", machine.name.replacingOccurrences(of: ",", with: ",,"),
-            "-machine", "q35,accel=tcg,hpet=off",
+            "-machine", "q35,hpet=off",
+            "-accel", "tcg,tb-size=1024",
             "-cpu", "max",
-            "-smp", String(machine.spec.cpuCount),
+            "-smp", String(min(machine.spec.cpuCount, 2)),
             "-m", String(memoryMiB),
             "-nodefaults",
             "-display", "none",
