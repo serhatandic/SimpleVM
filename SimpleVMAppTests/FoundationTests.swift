@@ -98,11 +98,11 @@ final class FoundationTests: XCTestCase {
         defer { settings.preset = previousPreset }
         settings.preset = .macOS
         let chord = settings.chord(
-            keyCode: 16,
+            keyCode: 47,
             modifiers: [.command]
         )
 
-        XCTAssertEqual(chord.keyCode, 16)
+        XCTAssertEqual(chord.keyCode, 47)
         XCTAssertTrue(chord.modifiers.contains(.command))
     }
 
@@ -122,6 +122,148 @@ final class FoundationTests: XCTestCase {
             settings.workspaceChord(direction: .previous),
             GuestChord(keyCode: 48, modifiers: [.command, .shift])
         )
+    }
+
+    @MainActor
+    func testHyprlandWorkspaceSwipeCyclesExplicitWorkspaces() {
+        let settings = KeyboardMappingSettings.shared
+        let previousPreset = settings.preset
+        let defaults = UserDefaults.standard
+        let previousIndex = defaults.integer(
+            forKey: "hyprlandWorkspaceIndex"
+        )
+        defer {
+            settings.deactivateMachinePreset()
+            settings.preset = previousPreset
+            defaults.set(
+                previousIndex,
+                forKey: "hyprlandWorkspaceIndex"
+            )
+        }
+        settings.activatePreset(forMachineNamed: "omarchy")
+        defaults.set(1, forKey: "hyprlandWorkspaceIndex")
+
+        XCTAssertEqual(
+            settings.workspaceChord(
+                direction: .next,
+                workspaceCount: 5
+            ),
+            GuestChord(keyCode: 19, modifiers: [.command])
+        )
+        XCTAssertEqual(
+            settings.workspaceChord(
+                direction: .previous,
+                workspaceCount: 5
+            ),
+            GuestChord(keyCode: 18, modifiers: [.command])
+        )
+        defaults.set(5, forKey: "hyprlandWorkspaceIndex")
+        XCTAssertEqual(
+            settings.workspaceChord(
+                direction: .next,
+                workspaceCount: 5
+            ),
+            GuestChord(keyCode: 18, modifiers: [.command])
+        )
+        _ = settings.chord(keyCode: 20, modifiers: [.command])
+        XCTAssertEqual(
+            settings.workspaceChord(
+                direction: .next,
+                workspaceCount: 5
+            ),
+            GuestChord(keyCode: 21, modifiers: [.command])
+        )
+        defaults.set(1, forKey: "hyprlandWorkspaceIndex")
+        settings.observeHostChord(
+            keyCode: 26,
+            modifiers: [.command]
+        )
+        XCTAssertEqual(
+            settings.workspaceChord(
+                direction: .next,
+                workspaceCount:
+                    KeyboardMappingSettings.hyprlandWorkspaceCount
+            ),
+            GuestChord(keyCode: 28, modifiers: [.command])
+        )
+    }
+
+    @MainActor
+    func testDockSwipeFiresOnSmallProgressAndVelocityFallback() throws {
+        var directions: [WorkspaceSwipeDirection] = []
+        let capture = ImmersiveInputCapture(
+            keyEventHandler: { _ in },
+            workspaceSwipeHandler: { directions.append($0) },
+            usesNativeKeyboardMapping: false
+        )
+        let began = try XCTUnwrap(CGEvent(source: nil))
+        began.setIntegerValueField(CGEventField(rawValue: 55)!, value: 30)
+        began.setIntegerValueField(CGEventField(rawValue: 110)!, value: 23)
+        began.setIntegerValueField(CGEventField(rawValue: 123)!, value: 1)
+        began.setIntegerValueField(CGEventField(rawValue: 132)!, value: 1)
+        XCTAssertEqual(capture.handleDockGesture(began), .suppress)
+
+        let changed = try XCTUnwrap(CGEvent(source: nil))
+        changed.setIntegerValueField(CGEventField(rawValue: 55)!, value: 30)
+        changed.setIntegerValueField(CGEventField(rawValue: 110)!, value: 23)
+        changed.setIntegerValueField(CGEventField(rawValue: 123)!, value: 1)
+        changed.setIntegerValueField(CGEventField(rawValue: 132)!, value: 2)
+        changed.setDoubleValueField(
+            CGEventField(rawValue: 124)!,
+            value: -0.001
+        )
+        XCTAssertEqual(capture.handleDockGesture(changed), .suppress)
+        XCTAssertEqual(directions, [.previous])
+
+        directions.removeAll()
+        let secondCapture = ImmersiveInputCapture(
+            keyEventHandler: { _ in },
+            workspaceSwipeHandler: { directions.append($0) },
+            usesNativeKeyboardMapping: false
+        )
+        XCTAssertEqual(secondCapture.handleDockGesture(began), .suppress)
+        let ended = try XCTUnwrap(CGEvent(source: nil))
+        ended.setIntegerValueField(CGEventField(rawValue: 55)!, value: 30)
+        ended.setIntegerValueField(CGEventField(rawValue: 110)!, value: 23)
+        ended.setIntegerValueField(CGEventField(rawValue: 123)!, value: 1)
+        ended.setIntegerValueField(CGEventField(rawValue: 132)!, value: 4)
+        ended.setDoubleValueField(
+            CGEventField(rawValue: 129)!,
+            value: 1
+        )
+        XCTAssertEqual(secondCapture.handleDockGesture(ended), .suppress)
+        XCTAssertEqual(directions, [.next])
+    }
+
+    @MainActor
+    func testNativeDockSwipeUsesHardwareBackedModifierEvents() throws {
+        let capture = ImmersiveInputCapture(
+            keyEventHandler: { _ in },
+            workspaceSwipeHandler: { _ in },
+            usesNativeKeyboardMapping: true
+        )
+        let began = try XCTUnwrap(CGEvent(source: nil))
+        began.setIntegerValueField(CGEventField(rawValue: 55)!, value: 30)
+        began.setIntegerValueField(CGEventField(rawValue: 110)!, value: 23)
+        began.setIntegerValueField(CGEventField(rawValue: 123)!, value: 1)
+        began.setIntegerValueField(CGEventField(rawValue: 132)!, value: 1)
+
+        XCTAssertEqual(capture.handleDockGesture(began), .forward)
+        XCTAssertEqual(began.type, .flagsChanged)
+        XCTAssertEqual(
+            began.getIntegerValueField(.keyboardEventKeycode),
+            55
+        )
+        XCTAssertTrue(began.flags.contains(.maskCommand))
+
+        let ended = try XCTUnwrap(CGEvent(source: nil))
+        ended.setIntegerValueField(CGEventField(rawValue: 55)!, value: 30)
+        ended.setIntegerValueField(CGEventField(rawValue: 110)!, value: 23)
+        ended.setIntegerValueField(CGEventField(rawValue: 123)!, value: 1)
+        ended.setIntegerValueField(CGEventField(rawValue: 132)!, value: 4)
+        XCTAssertEqual(capture.handleDockGesture(ended), .forward)
+        XCTAssertEqual(ended.type, .flagsChanged)
+        XCTAssertFalse(ended.flags.contains(.maskCommand))
     }
 
     @MainActor
@@ -303,11 +445,11 @@ final class FoundationTests: XCTestCase {
 
         XCTAssertEqual(
             settings.chord(keyCode: 12, modifiers: [.command]),
-            GuestChord(keyCode: 12, modifiers: [.command])
+            GuestChord(keyCode: 13, modifiers: [.command])
         )
         XCTAssertEqual(
             settings.chord(keyCode: 48, modifiers: [.command]),
-            GuestChord(keyCode: 48, modifiers: [.command])
+            GuestChord(keyCode: 48, modifiers: [.option])
         )
         XCTAssertEqual(
             settings.workspaceChord(direction: .next),
@@ -377,6 +519,7 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(transmitted.map(\.1), [true, true, false, false])
     }
 
+    @MainActor
     func testKarabinerRuleContainsCriticalVZMappings() throws {
         let manipulators = try XCTUnwrap(
             KarabinerInputBridge.generatedRule["manipulators"]
@@ -413,6 +556,48 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(
             switcher["modifiers"] as? [String],
             ["left_option"]
+        )
+
+        let bold = try XCTUnwrap(output(for: "b", modifiers: ["command"]))
+        XCTAssertEqual(bold["key_code"] as? String, "b")
+        XCTAssertEqual(
+            bold["modifiers"] as? [String],
+            ["left_control"]
+        )
+        XCTAssertEqual(
+            manipulators.count,
+            KeyboardMappingSettings.mappingEntries(for: .macOS).count
+        )
+        let hyprlandManipulators = try XCTUnwrap(
+            KarabinerInputBridge.generatedRule(for: .hyprland)[
+                "manipulators"
+            ] as? [[String: Any]]
+        )
+        XCTAssertEqual(
+            hyprlandManipulators.count,
+            KeyboardMappingSettings.mappingEntries(for: .hyprland).count
+        )
+
+        let payload = KarabinerInputBridge.variablePayload(active: true)
+        let payloadObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(
+                with: Data(payload.utf8)
+            ) as? [String: Int]
+        )
+        XCTAssertEqual(
+            payloadObject[KarabinerInputBridge.variableName],
+            1
+        )
+        let inactivePayload = KarabinerInputBridge.variablePayload(
+            active: false
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(
+                JSONSerialization.jsonObject(
+                    with: Data(inactivePayload.utf8)
+                ) as? [String: Int]
+            )[KarabinerInputBridge.variableName],
+            0
         )
     }
 

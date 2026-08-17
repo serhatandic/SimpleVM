@@ -10,10 +10,12 @@ final class ImmersiveInputCapture {
     private static let gestureHIDTypeField = CGEventField(rawValue: 110)!
     private static let gestureMotionField = CGEventField(rawValue: 123)!
     private static let gestureProgressField = CGEventField(rawValue: 124)!
+    private static let gestureVelocityXField = CGEventField(rawValue: 129)!
     private static let gesturePhaseField = CGEventField(rawValue: 132)!
     private static let dockSwipeHIDType: Int64 = 23
     private static let horizontalMotion: Int64 = 1
     private static let gestureBegan: Int64 = 1
+    private static let gestureChanged: Int64 = 2
     private static let gestureEnded: Int64 = 4
     private static let gestureCancelled: Int64 = 8
 
@@ -24,7 +26,9 @@ final class ImmersiveInputCapture {
     private var runLoopSource: CFRunLoopSource?
     private var callbackContext: UnsafeMutableRawPointer?
     private var tracksDockSwipe = false
+    private var swipeFired = false
     private var dockSwipeProgress = 0.0
+    private var nativeGestureModifierDown = false
 
     init(
         keyEventHandler: @escaping (GuestKeyEvent) -> Void,
@@ -83,6 +87,7 @@ final class ImmersiveInputCapture {
     }
 
     func stop() {
+        releaseNativeGestureModifier()
         router.releaseAll()
         if let tap {
             CGEvent.tapEnable(tap: tap, enable: false)
@@ -104,6 +109,7 @@ final class ImmersiveInputCapture {
             self.callbackContext = nil
         }
         tracksDockSwipe = false
+        swipeFired = false
         dockSwipeProgress = 0
     }
 
@@ -119,17 +125,12 @@ final class ImmersiveInputCapture {
         router.endPointerInteraction()
     }
 
-    func sendWorkspaceSwipe(_ direction: WorkspaceSwipeDirection) {
-        router.sendChord(
-            KeyboardMappingSettings.shared.workspaceChord(direction: direction)
-        )
-    }
-
     func setEnabled(_ enabled: Bool) {
         if let tap {
             CGEvent.tapEnable(tap: tap, enable: enabled)
         }
         if !enabled {
+            releaseNativeGestureModifier()
             router.releaseAll()
         }
     }
@@ -156,13 +157,19 @@ final class ImmersiveInputCapture {
             return Unmanaged.passUnretained(event)
         }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            releaseNativeGestureModifier()
             if let tap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
             return Unmanaged.passUnretained(event)
         }
-        if handleDockGesture(event) {
+        switch handleDockGesture(event) {
+        case .suppress:
             return nil
+        case .forward:
+            return Unmanaged.passUnretained(event)
+        case .ignored:
+            break
         }
         switch type {
         case .flagsChanged:
@@ -187,6 +194,10 @@ final class ImmersiveInputCapture {
                 return nil
             }
             if usesNativeKeyboardMapping {
+                KeyboardMappingSettings.shared.observeHostChord(
+                    keyCode: keyCode,
+                    modifiers: modifiers
+                )
                 return Unmanaged.passUnretained(event)
             }
             let repeats = event.getIntegerValueField(
@@ -216,7 +227,9 @@ final class ImmersiveInputCapture {
         }
     }
 
-    private func handleDockGesture(_ event: CGEvent) -> Bool {
+    func handleDockGesture(
+        _ event: CGEvent
+    ) -> GestureDisposition {
         let eventType = event.getIntegerValueField(Self.eventTypeField)
         if eventType == Int64(Self.dockControlEventType.rawValue),
            event.getIntegerValueField(Self.gestureHIDTypeField)
@@ -226,32 +239,96 @@ final class ImmersiveInputCapture {
             let phase = event.getIntegerValueField(Self.gesturePhaseField)
             if phase == Self.gestureBegan {
                 tracksDockSwipe = true
+                swipeFired = false
                 dockSwipeProgress = 0
+                if usesNativeKeyboardMapping {
+                    makeNativeModifierEvent(event, isDown: true)
+                    return .forward
+                }
+                return .suppress
             }
             if tracksDockSwipe {
                 dockSwipeProgress = event.getDoubleValueField(
                     Self.gestureProgressField
                 )
             }
-            if phase == Self.gestureEnded, tracksDockSwipe {
-                if abs(dockSwipeProgress) > 0.1 {
-                    let direction: WorkspaceSwipeDirection =
-                        dockSwipeProgress < 0 ? .next : .previous
-                    workspaceSwipeHandler(direction)
+            if phase == Self.gestureChanged,
+               tracksDockSwipe,
+               !swipeFired,
+               dockSwipeProgress != 0 {
+                fireSwipe(directionValue: dockSwipeProgress)
+            } else if phase == Self.gestureEnded, tracksDockSwipe {
+                if !swipeFired {
+                    let velocity = event.getDoubleValueField(
+                        Self.gestureVelocityXField
+                    )
+                    if velocity != 0 {
+                        fireSwipe(directionValue: velocity)
+                    }
                 }
                 tracksDockSwipe = false
+                swipeFired = false
                 dockSwipeProgress = 0
+                if usesNativeKeyboardMapping {
+                    makeNativeModifierEvent(event, isDown: false)
+                    return .forward
+                }
             } else if phase == Self.gestureCancelled {
                 tracksDockSwipe = false
+                swipeFired = false
                 dockSwipeProgress = 0
+                if usesNativeKeyboardMapping {
+                    makeNativeModifierEvent(event, isDown: false)
+                    return .forward
+                }
             }
-            return true
+            return .suppress
         }
         if eventType == Int64(Self.gestureEventType.rawValue),
            tracksDockSwipe {
-            return true
+            return .suppress
         }
-        return false
+        return .ignored
+    }
+
+    private func fireSwipe(directionValue: Double) {
+        swipeFired = true
+        workspaceSwipeHandler(
+            directionValue > 0 ? .next : .previous
+        )
+    }
+
+    private func makeNativeModifierEvent(
+        _ event: CGEvent,
+        isDown: Bool
+    ) {
+        event.type = .flagsChanged
+        event.setIntegerValueField(
+            .keyboardEventKeycode,
+            value: 55
+        )
+        event.flags = isDown ? [.maskCommand] : []
+        nativeGestureModifierDown = isDown
+    }
+
+    private func releaseNativeGestureModifier() {
+        guard nativeGestureModifierDown,
+              let source = CGEventSource(stateID: .hidSystemState),
+              let event = CGEvent(
+                keyboardEventSource: source,
+                virtualKey: 55,
+                keyDown: false
+              ) else {
+            return
+        }
+        event.type = .flagsChanged
+        event.flags = []
+        event.setIntegerValueField(
+            .eventSourceUserData,
+            value: GuestInputEventMarker.value
+        )
+        event.post(tap: .cghidEventTap)
+        nativeGestureModifierDown = false
     }
 
     private func modifierFlags(
@@ -263,6 +340,12 @@ final class ImmersiveInputCapture {
         if flags.contains(.maskShift) { result.insert(.shift) }
         if flags.contains(.maskCommand) { result.insert(.command) }
         return result
+    }
+
+    enum GestureDisposition: Equatable {
+        case ignored
+        case suppress
+        case forward
     }
 
 }

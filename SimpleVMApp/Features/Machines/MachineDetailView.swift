@@ -201,7 +201,18 @@ struct MachineDetailView: View {
                             runtime: runtime,
                             isImmersive: immersion.isActive(
                                 machineID: machine.id
-                            )
+                            ),
+                            pointerInteractionHandler: {
+                                active,
+                                modifiers in
+                                if active {
+                                    immersion.beginPointerInteraction(
+                                        modifiers: modifiers
+                                    )
+                                } else {
+                                    immersion.endPointerInteraction()
+                                }
+                            }
                         )
                     } else {
                         QEMUMachineDisplayView(
@@ -310,6 +321,9 @@ struct MachineDetailView: View {
                 releaseKeysHandler: {
                     runtime.releaseAllKeys()
                 },
+                workspaceSwipeHandler: { direction in
+                    runtime.sendWorkspaceSwipe(direction)
+                },
                 usesKarabinerInput: true
             )
         case .qemu:
@@ -321,6 +335,9 @@ struct MachineDetailView: View {
                 },
                 releaseKeysHandler: {
                     runtime.releaseAllKeys()
+                },
+                workspaceSwipeHandler: { direction in
+                    runtime.sendWorkspaceSwipe(direction)
                 },
                 usesKarabinerInput: false
             )

@@ -1,5 +1,7 @@
+import AppKit
 import Foundation
 
+@MainActor
 enum KarabinerInputBridge {
     static let ruleDescription = "SimpleVM Immersion Mappings"
     static let variableName = "simplevm_vz_immersion"
@@ -26,7 +28,9 @@ enum KarabinerInputBridge {
         guard devices.contains("Karabiner DriverKit VirtualHIDKeyboard") else {
             throw KarabinerBridgeError.virtualKeyboardUnavailable
         }
-        try installRules()
+        try installRules(
+            preset: KeyboardMappingSettings.shared.activePreset
+        )
         let profile = try runCLI(["--show-current-profile-name"])
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !profile.isEmpty else {
@@ -40,8 +44,8 @@ enum KarabinerInputBridge {
         guard isInstalled else { return false }
         do {
             _ = try runCLI([
-            "--set-variables",
-            "{\"\\(variableName)\":\\(active ? 1 : 0)}"
+                "--set-variables",
+                variablePayload(active: active)
             ])
             return true
         } catch {
@@ -49,7 +53,13 @@ enum KarabinerInputBridge {
         }
     }
 
-    private static func installRules() throws {
+    static func variablePayload(active: Bool) -> String {
+        "{\"\(variableName)\":\(active ? 1 : 0)}"
+    }
+
+    private static func installRules(
+        preset: KeyboardPreset
+    ) throws {
         let data: Data
         do {
             data = try Data(contentsOf: configURL)
@@ -73,7 +83,7 @@ enum KarabinerInputBridge {
         rules.removeAll {
             $0["description"] as? String == ruleDescription
         }
-        rules.append(generatedRule)
+        rules.append(generatedRule(for: preset))
         modifications["rules"] = rules
         profile["complex_modifications"] = modifications
         profiles[profileIndex] = profile
@@ -90,68 +100,36 @@ enum KarabinerInputBridge {
     }
 
     static var generatedRule: [String: Any] {
-        let shared: [[String: Any]] = [
-            mapping("c", ["command"], "c", ["left_control"]),
-            mapping("x", ["command"], "x", ["left_control"]),
-            mapping("v", ["command"], "v", ["left_control"]),
-            mapping("z", ["command"], "z", ["left_control"]),
-            mapping("z", ["command", "shift"], "z", [
-                "left_control", "left_shift"
-            ]),
-            mapping("a", ["command"], "a", ["left_control"]),
-            mapping("s", ["command"], "s", ["left_control"]),
-            mapping("p", ["command"], "p", ["left_control"]),
-            mapping("o", ["command"], "o", ["left_control"]),
-            mapping("f", ["command"], "f", ["left_control"]),
-            mapping("g", ["command"], "g", ["left_control"]),
-            mapping("r", ["command"], "r", ["left_control"]),
-            mapping("l", ["command"], "l", ["left_control"]),
-            mapping("n", ["command"], "n", ["left_control"]),
-            mapping("t", ["command"], "t", ["left_control"]),
-            mapping("w", ["command"], "w", ["left_control"]),
-            mapping("equal_sign", ["command"], "equal_sign", [
-                "left_control"
-            ]),
-            mapping("hyphen", ["command"], "hyphen", ["left_control"]),
-            mapping("0", ["command"], "0", ["left_control"]),
-            mapping("left_arrow", ["command"], "home", []),
-            mapping("right_arrow", ["command"], "end", []),
-            mapping("up_arrow", ["command"], "home", ["left_control"]),
-            mapping("down_arrow", ["command"], "end", ["left_control"]),
-            mapping("left_arrow", ["option"], "left_arrow", [
-                "left_control"
-            ]),
-            mapping("right_arrow", ["option"], "right_arrow", [
-                "left_control"
-            ]),
-            mapping(
-                "delete_or_backspace",
-                ["option"],
-                "delete_or_backspace",
-                ["left_control"]
-            ),
-            mapping("delete_forward", ["option"], "delete_forward", [
-                "left_control"
-            ]),
-            mapping("q", ["command"], "f4", ["left_option"]),
-            mapping("tab", ["command"], "tab", ["left_option"]),
-            mapping("tab", ["command", "shift"], "tab", [
-                "left_option", "left_shift"
-            ]),
-            mapping("f", ["command", "control"], "f11", [])
-        ]
+        generatedRule(for: .macOS)
+    }
+
+    static func generatedRule(
+        for preset: KeyboardPreset
+    ) -> [String: Any] {
+        let manipulators = KeyboardMappingSettings.mappingEntries(
+            for: preset
+        ).compactMap(mapping)
         return [
             "description": ruleDescription,
-            "manipulators": shared
+            "manipulators": manipulators
         ]
     }
 
     private static func mapping(
-        _ fromKey: String,
-        _ fromModifiers: [String],
-        _ toKey: String,
-        _ toModifiers: [String]
-    ) -> [String: Any] {
+        _ entry: KeyboardMappingEntry
+    ) -> [String: Any]? {
+        guard let fromKey = keyName(for: entry.host.keyCode),
+              let toKey = keyName(for: entry.guest.keyCode) else {
+            return nil
+        }
+        let fromModifiers = modifierNames(
+            for: entry.host.modifiers,
+            sideSpecific: false
+        )
+        let toModifiers = modifierNames(
+            for: entry.guest.modifiers,
+            sideSpecific: true
+        )
         var to: [String: Any] = ["key_code": toKey]
         if !toModifiers.isEmpty {
             to["modifiers"] = toModifiers
@@ -162,7 +140,7 @@ enum KarabinerInputBridge {
                 "key_code": fromKey,
                 "modifiers": [
                     "mandatory": fromModifiers,
-                    "optional": ["caps_lock"]
+                    "optional": ["caps_lock", "fn"]
                 ]
             ],
             "to": [to],
@@ -178,6 +156,82 @@ enum KarabinerInputBridge {
                 ]
             ]
         ]
+    }
+
+    private static func keyName(for keyCode: UInt16) -> String? {
+        switch keyCode {
+        case 0: "a"
+        case 1: "s"
+        case 2: "d"
+        case 3: "f"
+        case 4: "h"
+        case 5: "g"
+        case 6: "z"
+        case 7: "x"
+        case 8: "c"
+        case 9: "v"
+        case 11: "b"
+        case 12: "q"
+        case 13: "w"
+        case 14: "e"
+        case 15: "r"
+        case 16: "y"
+        case 17: "t"
+        case 18: "1"
+        case 19: "2"
+        case 20: "3"
+        case 21: "4"
+        case 22: "6"
+        case 23: "5"
+        case 24: "equal_sign"
+        case 25: "9"
+        case 26: "7"
+        case 27: "hyphen"
+        case 28: "8"
+        case 29: "0"
+        case 31: "o"
+        case 32: "u"
+        case 34: "i"
+        case 35: "p"
+        case 37: "l"
+        case 38: "j"
+        case 40: "k"
+        case 45: "n"
+        case 46: "m"
+        case 48: "tab"
+        case 49: "spacebar"
+        case 51: "delete_or_backspace"
+        case 103: "f11"
+        case 115: "home"
+        case 118: "f4"
+        case 117: "delete_forward"
+        case 119: "end"
+        case 123: "left_arrow"
+        case 124: "right_arrow"
+        case 125: "down_arrow"
+        case 126: "up_arrow"
+        default: nil
+        }
+    }
+
+    private static func modifierNames(
+        for modifiers: NSEvent.ModifierFlags,
+        sideSpecific: Bool
+    ) -> [String] {
+        var result: [String] = []
+        if modifiers.contains(.command) {
+            result.append(sideSpecific ? "left_command" : "command")
+        }
+        if modifiers.contains(.control) {
+            result.append(sideSpecific ? "left_control" : "control")
+        }
+        if modifiers.contains(.option) {
+            result.append(sideSpecific ? "left_option" : "option")
+        }
+        if modifiers.contains(.shift) {
+            result.append(sideSpecific ? "left_shift" : "shift")
+        }
+        return result
     }
 
     private static func runCLI(_ arguments: [String]) throws -> String {

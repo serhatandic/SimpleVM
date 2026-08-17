@@ -27,6 +27,9 @@ final class MachineRuntime {
     @ObservationIgnored
     private var pressedKeyEvents: [UInt16: NSEvent] = [:]
 
+    @ObservationIgnored
+    private var lastWorkspaceSwipeTime = 0.0
+
     init(state: MachineRuntimeState = .stopped) {
         switch state {
         case .running, .starting, .stopping:
@@ -172,8 +175,10 @@ final class MachineRuntime {
                 ) else { continue }
                 displayView.keyUp(with: release)
             }
+
         }
         pressedKeyEvents.removeAll()
+        lastWorkspaceSwipeTime = 0
         guard let displayView else {
             pressedModifierKeyCodes.removeAll()
             return
@@ -194,6 +199,35 @@ final class MachineRuntime {
             displayView.flagsChanged(with: release)
         }
         pressedModifierKeyCodes.removeAll()
+    }
+
+    func sendWorkspaceSwipe(_ direction: WorkspaceSwipeDirection) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastWorkspaceSwipeTime > 0.25 else { return }
+        lastWorkspaceSwipeTime = now
+        let chord = KeyboardMappingSettings.shared.workspaceChord(
+            direction: direction,
+            workspaceCount:
+                KeyboardMappingSettings.hyprlandWorkspaceCount
+        )
+        sendGuestKeyEvent(
+            GuestKeyEvent(
+                keyCode: chord.keyCode,
+                isDown: true,
+                isRepeat: false,
+                modifiers: [],
+                isModifier: false
+            )
+        )
+        sendGuestKeyEvent(
+            GuestKeyEvent(
+                keyCode: chord.keyCode,
+                isDown: false,
+                isRepeat: false,
+                modifiers: [],
+                isModifier: false
+            )
+        )
     }
 
     private func handleDelegateState(_ state: MachineRuntimeState) {

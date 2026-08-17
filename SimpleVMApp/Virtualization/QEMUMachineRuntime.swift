@@ -52,6 +52,9 @@ final class QEMUMachineRuntime {
     private var lastRequestedDisplaySize: (UInt16, UInt16)?
 
     @ObservationIgnored
+    private var lastWorkspaceSwipeTime = 0.0
+
+    @ObservationIgnored
     private var pressedKeysyms: Set<UInt32> = []
 
     @ObservationIgnored
@@ -320,8 +323,25 @@ final class QEMUMachineRuntime {
         for keysym in pressedKeysyms {
             sendKey(keysym, isDown: false)
         }
+
         pressedKeysyms.removeAll()
         pressedModifierKeyCodes.removeAll()
+    }
+
+    func sendWorkspaceSwipe(_ direction: WorkspaceSwipeDirection) {
+        let now = ProcessInfo.processInfo.systemUptime
+        guard now - lastWorkspaceSwipeTime > 0.25 else { return }
+        lastWorkspaceSwipeTime = now
+        let router = GuestInputRouter { [weak self] event in
+            self?.sendGuestKeyEvent(event)
+        }
+        router.sendChord(
+            KeyboardMappingSettings.shared.workspaceChord(
+                direction: direction,
+                workspaceCount:
+                    KeyboardMappingSettings.hyprlandWorkspaceCount
+            )
+        )
     }
 
     private func handle(processState: QEMUProcessController.State) {
@@ -398,6 +418,7 @@ final class QEMUMachineRuntime {
         serialMonitorTask?.cancel()
         serialReadOffset = 0
         lastRequestedDisplaySize = nil
+        lastWorkspaceSwipeTime = 0
         requiresDiskPassword = false
         serialMonitorTask = Task { [weak self] in
             while !Task.isCancelled {

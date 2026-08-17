@@ -46,6 +46,9 @@ final class ImmersionController {
         machineID: UUID,
         keyEventHandler: @escaping (GuestKeyEvent) -> Void,
         releaseKeysHandler: @escaping () -> Void,
+        workspaceSwipeHandler: @escaping (
+            WorkspaceSwipeDirection
+        ) -> Void,
         usesKarabinerInput: Bool
     ) {
         guard activeMachineID == nil, let window = NSApp.keyWindow else {
@@ -72,9 +75,7 @@ final class ImmersionController {
 
         let capture = ImmersiveInputCapture(
             keyEventHandler: keyEventHandler,
-            workspaceSwipeHandler: { [weak self] direction in
-                self?.inputCapture?.sendWorkspaceSwipe(direction)
-            },
+            workspaceSwipeHandler: workspaceSwipeHandler,
             usesNativeKeyboardMapping: usesKarabinerInput
         )
         inputCapture = capture
@@ -133,21 +134,24 @@ final class ImmersionController {
                 } else {
                     inputCapture.setEnabled(true)
                 }
-                if usesKarabinerInput,
-                   self.karabinerErrorMessage != nil {
-                    do {
-                        try KarabinerInputBridge.prepare()
-                        guard KarabinerInputBridge.setImmersionActive(
-                            true
-                        ) else {
-                            throw KarabinerBridgeError.commandFailed(
-                                "Unable to activate SimpleVM mappings."
-                            )
-                        }
+                if usesKarabinerInput {
+                    if KarabinerInputBridge.setImmersionActive(true) {
                         self.karabinerErrorMessage = nil
-                    } catch {
-                        self.karabinerErrorMessage =
-                            error.localizedDescription
+                    } else {
+                        do {
+                            try KarabinerInputBridge.prepare()
+                            guard KarabinerInputBridge.setImmersionActive(
+                                true
+                            ) else {
+                                throw KarabinerBridgeError.commandFailed(
+                                    "Unable to activate SimpleVM mappings."
+                                )
+                            }
+                            self.karabinerErrorMessage = nil
+                        } catch {
+                            self.karabinerErrorMessage =
+                                error.localizedDescription
+                        }
                     }
                 }
             }

@@ -26,7 +26,7 @@ enum GuestInputEventMarker {
     static let value: Int64 = 0x53494D504C45564D
 }
 
-private struct HostChord: Hashable {
+struct HostChord: Hashable {
     let keyCode: UInt16
     let modifiers: NSEvent.ModifierFlags
 
@@ -34,6 +34,11 @@ private struct HostChord: Hashable {
         hasher.combine(keyCode)
         hasher.combine(modifiers.rawValue)
     }
+}
+
+struct KeyboardMappingEntry: Equatable {
+    let host: HostChord
+    let guest: GuestChord
 }
 
 @MainActor
@@ -71,9 +76,33 @@ final class KeyboardMappingSettings {
         guard effectivePreset != .passthrough else {
             return GuestChord(keyCode: keyCode, modifiers: normalized)
         }
-        return mappings[
+        let resolved = mappings[
             HostChord(keyCode: keyCode, modifiers: normalized)
         ] ?? GuestChord(keyCode: keyCode, modifiers: normalized)
+        synchronizeHyprlandWorkspace(with: resolved)
+        return resolved
+    }
+
+    func observeHostChord(
+        keyCode: UInt16,
+        modifiers: NSEvent.ModifierFlags
+    ) {
+        guard effectivePreset == .hyprland,
+              modifiers.intersection([
+                .command,
+                .option,
+                .control,
+                .shift
+              ]) == .command,
+              let index = Self.hyprlandWorkspaceKeyCodes.firstIndex(
+                of: keyCode
+              ) else {
+            return
+        }
+        UserDefaults.standard.set(
+            index + 1,
+            forKey: "hyprlandWorkspaceIndex"
+        )
     }
 
     func workspaceChord(direction: WorkspaceSwipeDirection) -> GuestChord {
@@ -91,7 +120,36 @@ final class KeyboardMappingSettings {
                 modifiers: [.command]
             )
         }
+    }
 
+    func workspaceChord(
+        direction: WorkspaceSwipeDirection,
+        workspaceCount: Int
+    ) -> GuestChord {
+        guard effectivePreset == .hyprland else {
+            return workspaceChord(direction: direction)
+        }
+        let count = min(
+            max(workspaceCount, 2),
+            Self.hyprlandWorkspaceCount
+        )
+        let defaults = UserDefaults.standard
+        let key = "hyprlandWorkspaceIndex"
+        var index = defaults.integer(forKey: key)
+        index = min(max(index, 1), count)
+        switch direction {
+        case .next:
+            index = index == count ? 1 : index + 1
+        case .previous:
+            index = index == 1 ? count : index - 1
+        }
+        defaults.set(index, forKey: key)
+        return GuestChord(
+            keyCode: Self.hyprlandWorkspaceKeyCodes[
+                min(index, Self.hyprlandWorkspaceKeyCodes.count) - 1
+            ],
+            modifiers: [.command]
+        )
     }
 
     func pointerModifiers(
@@ -123,17 +181,28 @@ final class KeyboardMappingSettings {
             ]
         case .hyprland:
             Self.sharedDescriptions + [
-                ("⌘W / ⌘Q", "Super+Q"),
+                ("⌘W / ⌘Q", "Super+W"),
                 ("⌘Space", "Super+Space"),
-                ("⌘Tab", "Super+Tab"),
-                ("⇧⌘Tab", "Super+Shift+Tab"),
+                ("⌘Tab", "Alt+Tab"),
+                ("⇧⌘Tab", "Alt+Shift+Tab"),
                 ("⌃⌘F", "Super+F"),
-                ("⌘1…9", "Super+1…9")
+                ("⌘1…0", "Super+1…0"),
+                ("Workspace swipe", "Super+Tab / Super+Shift+Tab")
             ]
         }
     }
 
     private var mappings: [HostChord: GuestChord] {
+        Dictionary(
+            uniqueKeysWithValues: Self.mappingEntries(
+                for: effectivePreset
+            ).map { ($0.host, $0.guest) }
+        )
+    }
+
+    static func mappingEntries(
+        for preset: KeyboardPreset
+    ) -> [KeyboardMappingEntry] {
         var result: [HostChord: GuestChord] = [:]
         func add(
             _ keyCode: UInt16,
@@ -147,48 +216,95 @@ final class KeyboardMappingSettings {
             )
         }
 
-        for keyCode in [8, 7, 9, 0, 6, 1, 35, 31, 3, 5, 45, 17, 11, 34, 32,
-                        15, 37, 40, 2] {
+        let letterKeyCodes: [UInt16] = [
+            0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11, 12, 13,
+            14, 15, 16, 17, 31, 32, 34, 35, 37, 38, 40,
+            45, 46
+        ]
+        let digitKeyCodes: [UInt16] = [
+            18, 19, 20, 21, 22, 23, 25, 26, 28, 29
+        ]
+        for keyCode in letterKeyCodes {
             add(UInt16(keyCode), [.command], [.control])
+            add(
+                UInt16(keyCode),
+                [.command, .shift],
+                [.control, .shift]
+            )
         }
-        add(6, [.command, .shift], [.control, .shift])
-        add(3, [.command, .shift], [.control, .shift])
-        add(15, [.command, .shift], [.control, .shift])
+        for keyCode in digitKeyCodes {
+            add(keyCode, [.command], [.control])
+        }
         add(24, [.command], [.control])
         add(27, [.command], [.control])
-        add(29, [.command], [.control])
         add(123, [.command], [], guestKeyCode: 115)
         add(124, [.command], [], guestKeyCode: 119)
         add(126, [.command], [.control], guestKeyCode: 115)
         add(125, [.command], [.control], guestKeyCode: 119)
         add(123, [.command, .shift], [.shift], guestKeyCode: 115)
         add(124, [.command, .shift], [.shift], guestKeyCode: 119)
+        add(
+            126,
+            [.command, .shift],
+            [.control, .shift],
+            guestKeyCode: 115
+        )
+        add(
+            125,
+            [.command, .shift],
+            [.control, .shift],
+            guestKeyCode: 119
+        )
         add(123, [.option], [.control], guestKeyCode: 123)
         add(124, [.option], [.control], guestKeyCode: 124)
+        add(
+            123,
+            [.option, .shift],
+            [.control, .shift],
+            guestKeyCode: 123
+        )
+        add(
+            124,
+            [.option, .shift],
+            [.control, .shift],
+            guestKeyCode: 124
+        )
         add(51, [.option], [.control])
         add(117, [.option], [.control])
 
-        switch effectivePreset {
+        switch preset {
         case .macOS:
-            add(13, [.command], [.control])
             add(12, [.command], [.option], guestKeyCode: 118)
             add(48, [.command], [.option])
+            add(48, [.command, .shift], [.option, .shift])
             add(3, [.command, .control], [], guestKeyCode: 103)
         case .hyprland:
-            add(13, [.command], [.command], guestKeyCode: 12)
-            add(12, [.command], [.command])
+            add(13, [.command], [.command])
+            add(12, [.command], [.command], guestKeyCode: 13)
             add(49, [.command], [.command])
-            add(48, [.command], [.command])
-            add(48, [.command, .shift], [.command, .shift])
+            add(48, [.command], [.option])
+            add(48, [.command, .shift], [.option, .shift])
             add(3, [.command, .control], [.command])
-            for keyCode in (18...29) where ![24, 27, 29].contains(keyCode) {
-                add(UInt16(keyCode), [.command], [.command])
-                add(UInt16(keyCode), [.command, .shift], [.command, .shift])
+            for keyCode in digitKeyCodes {
+                add(keyCode, [.command], [.command])
+                add(
+                    keyCode,
+                    [.command, .shift],
+                    [.command, .shift]
+                )
             }
         case .passthrough:
-            break
+            return []
         }
         return result
+            .map { KeyboardMappingEntry(host: $0.key, guest: $0.value) }
+            .sorted {
+                if $0.host.keyCode != $1.host.keyCode {
+                    return $0.host.keyCode < $1.host.keyCode
+                }
+                return $0.host.modifiers.rawValue
+                    < $1.host.modifiers.rawValue
+            }
     }
 
     func activatePreset(forMachineNamed name: String) {
@@ -198,6 +314,12 @@ final class KeyboardMappingSettings {
             || normalized.contains("hyprland")
             ? .hyprland
             : preset
+        if activeMachinePreset == .hyprland {
+            UserDefaults.standard.set(
+                1,
+                forKey: "hyprlandWorkspaceIndex"
+            )
+        }
     }
 
     func deactivateMachinePreset() {
@@ -207,6 +329,32 @@ final class KeyboardMappingSettings {
     private var effectivePreset: KeyboardPreset {
         activeMachinePreset ?? preset
     }
+
+    var activePreset: KeyboardPreset {
+        effectivePreset
+    }
+
+    private func synchronizeHyprlandWorkspace(
+        with chord: GuestChord
+    ) {
+        guard effectivePreset == .hyprland,
+              chord.modifiers == .command,
+              let index = Self.hyprlandWorkspaceKeyCodes.firstIndex(
+                of: chord.keyCode
+              ) else {
+            return
+        }
+        UserDefaults.standard.set(
+            index + 1,
+            forKey: "hyprlandWorkspaceIndex"
+        )
+    }
+
+    private static let hyprlandWorkspaceKeyCodes: [UInt16] = [
+        18, 19, 20, 21, 23, 22, 26, 28, 25, 29
+    ]
+
+    static let hyprlandWorkspaceCount = hyprlandWorkspaceKeyCodes.count
 
     private static let sharedDescriptions = [
         ("⌘C / X / V", "Ctrl+C / X / V"),
@@ -222,7 +370,7 @@ final class KeyboardMappingSettings {
     ]
 }
 
-enum WorkspaceSwipeDirection {
+enum WorkspaceSwipeDirection: Equatable {
     case previous
     case next
 }

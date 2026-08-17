@@ -5,10 +5,13 @@ import SwiftUI
 struct SPICEMachineDisplayView: NSViewRepresentable {
     let runtime: QEMUMachineRuntime
     let isImmersive: Bool
+    let pointerInteractionHandler:
+        (Bool, NSEvent.ModifierFlags) -> Void
 
     func makeNSView(context: Context) -> SPICEFramebufferNSView {
         let view = SPICEFramebufferNSView()
         view.runtime = runtime
+        view.pointerInteractionHandler = pointerInteractionHandler
         runtime.spiceDisplayView = view
         view.display = runtime.spiceController?.display
         DispatchQueue.main.async {
@@ -22,6 +25,7 @@ struct SPICEMachineDisplayView: NSViewRepresentable {
         context: Context
     ) {
         view.runtime = runtime
+        view.pointerInteractionHandler = pointerInteractionHandler
         runtime.spiceDisplayView = view
         view.display = runtime.spiceController?.display
         if isImmersive {
@@ -36,12 +40,15 @@ struct SPICEMachineDisplayView: NSViewRepresentable {
         coordinator: Void
     ) {
         view.display = nil
+        view.prepareForRemoval()
         view.runtime?.spiceDisplayView = nil
     }
 }
 
 final class SPICEFramebufferNSView: MTKView {
     weak var runtime: QEMUMachineRuntime?
+    var pointerInteractionHandler:
+        ((Bool, NSEvent.ModifierFlags) -> Void)?
     var display: CSDisplay? {
         didSet {
             if oldValue !== display, let oldValue {
@@ -56,6 +63,8 @@ final class SPICEFramebufferNSView: MTKView {
     private var spiceRenderer: CSMetalRenderer!
     private var trackingAreaReference: NSTrackingArea?
     private var buttonMask: UInt8 = 0
+    private var cursorHidden = false
+    private var appObservers: [NSObjectProtocol] = []
 
     private var renderer: CSRenderer {
         spiceRenderer
@@ -74,6 +83,37 @@ final class SPICEFramebufferNSView: MTKView {
         enableSetNeedsDisplay = false
         isPaused = false
         preferredFramesPerSecond = 60
+        appObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didResignActiveNotification,
+                object: NSApp,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    self?.restoreCursor()
+                }
+            }
+        )
+        appObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSApplication.didBecomeActiveNotification,
+                object: NSApp,
+                queue: .main
+            ) { [weak self] _ in
+                Task { @MainActor in
+                    guard let self, let window = self.window else {
+                        return
+                    }
+                    let point = self.convert(
+                        window.mouseLocationOutsideOfEventStream,
+                        from: nil
+                    )
+                    if self.bounds.contains(point) {
+                        self.hideCursor()
+                    }
+                }
+            }
+        )
     }
 
     required init(coder: NSCoder) {
@@ -97,7 +137,8 @@ final class SPICEFramebufferNSView: MTKView {
             options: [
                 .activeInKeyWindow,
                 .inVisibleRect,
-                .mouseMoved
+                .mouseMoved,
+                .mouseEnteredAndExited
             ],
             owner: self,
             userInfo: nil
@@ -122,6 +163,9 @@ final class SPICEFramebufferNSView: MTKView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if buttonMask == 0 {
+            pointerInteractionHandler?(true, event.modifierFlags)
+        }
         buttonMask |= 1
         sendPointer(event)
     }
@@ -129,9 +173,15 @@ final class SPICEFramebufferNSView: MTKView {
     override func mouseUp(with event: NSEvent) {
         buttonMask &= ~1
         sendPointer(event)
+        if buttonMask == 0 {
+            pointerInteractionHandler?(false, event.modifierFlags)
+        }
     }
 
     override func rightMouseDown(with event: NSEvent) {
+        if buttonMask == 0 {
+            pointerInteractionHandler?(true, event.modifierFlags)
+        }
         buttonMask |= 4
         sendPointer(event)
     }
@@ -139,9 +189,15 @@ final class SPICEFramebufferNSView: MTKView {
     override func rightMouseUp(with event: NSEvent) {
         buttonMask &= ~4
         sendPointer(event)
+        if buttonMask == 0 {
+            pointerInteractionHandler?(false, event.modifierFlags)
+        }
     }
 
     override func otherMouseDown(with event: NSEvent) {
+        if buttonMask == 0 {
+            pointerInteractionHandler?(true, event.modifierFlags)
+        }
         buttonMask |= 2
         sendPointer(event)
     }
@@ -149,6 +205,24 @@ final class SPICEFramebufferNSView: MTKView {
     override func otherMouseUp(with event: NSEvent) {
         buttonMask &= ~2
         sendPointer(event)
+        if buttonMask == 0 {
+            pointerInteractionHandler?(false, event.modifierFlags)
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hideCursor()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        restoreCursor()
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            restoreCursor()
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -206,5 +280,25 @@ final class SPICEFramebufferNSView: MTKView {
             (bounds.height - point.y - origin.y) / max(scale, 0.001)
         ))
         runtime?.sendPointer(mask: buttonMask, x: x, y: y)
+    }
+
+    func prepareForRemoval() {
+        restoreCursor()
+        for observer in appObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        appObservers.removeAll()
+    }
+
+    private func hideCursor() {
+        guard !cursorHidden else { return }
+        NSCursor.hide()
+        cursorHidden = true
+    }
+
+    private func restoreCursor() {
+        guard cursorHidden else { return }
+        NSCursor.unhide()
+        cursorHidden = false
     }
 }
