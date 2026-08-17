@@ -138,6 +138,70 @@ Karabiner-Elements rule for reliable virtual-HID modifier delivery. The rule is
 active only while SimpleVM immersion is active. SimpleVM does not need
 Karabiner-Elements for QEMU guests.
 
+### Hyprland and Karabiner-Elements
+
+Use the **macOS-style Hyprland** keyboard profile for Omarchy and other
+Hyprland guests. The setup depends on the VM backend:
+
+- **QEMU / x86_64:** SimpleVM sends mapped key events directly through SPICE.
+  Karabiner-Elements is not involved.
+- **Apple Virtualization / ARM64:** Karabiner-Elements provides the virtual-HID
+  modifiers that `VZVirtualMachineView` cannot reliably receive from synthetic
+  AppKit events.
+
+For an ARM64 Hyprland guest:
+
+1. Install and open
+   [Karabiner-Elements](https://karabiner-elements.pqrs.org/):
+
+   ```sh
+   brew install --cask karabiner-elements
+   ```
+
+2. Complete Karabiner-Elements' onboarding prompts. Allow its background
+   services, Accessibility access, and DriverKit extension when macOS asks.
+   On older Karabiner releases, macOS may also request Input Monitoring.
+3. In **System Settings > General > Login Items & Extensions > Driver
+   Extensions**, confirm the Karabiner virtual-HID driver is enabled.
+4. Open **SimpleVM > Settings** and confirm:
+   - **VZ Keyboard Mapping:** `Virtual HID ready`
+   - **System input capture:** `Ready`
+   - **Keyboard profile:** `macOS-style Hyprland`
+5. Start the guest and choose **Enter Immersion**. SimpleVM creates or updates
+   the `SimpleVM Immersion Mappings` rule and activates it only for the
+   frontmost `com.simplevm.app` session.
+6. Exit at any time with `Control+Option+Command+Escape`.
+
+The Hyprland profile provides these host-friendly bindings:
+
+| macOS input | Guest input | Hyprland action |
+| --- | --- | --- |
+| `Command+Return` | `Super+Return` | Open terminal |
+| `Shift+Command+Return` | `Super+Shift+Return` | Open browser |
+| `Shift+Command+F` | `Super+Shift+F` | Open file manager |
+| `Shift+Command+N` | `Super+Shift+N` | Open editor |
+| `Command+Space` | `Super+Space` | Open launcher |
+| `Command+Tab` | `Alt+Tab` | Focus next window |
+| `Shift+Command+Tab` | `Alt+Shift+Tab` | Focus previous window |
+| `Command+Arrow` | `Super+Arrow` | Focus in a direction |
+| `Shift+Command+Arrow` | `Super+Shift+Arrow` | Swap in a direction |
+| `Control+Command+F` | `Super+F` | Toggle fullscreen |
+| `Command+1...0` | `Super+1...0` | Switch workspace |
+| Horizontal workspace swipe | Numbered workspace chord | Previous or next workspace |
+
+Do not add a second set of manual Karabiner rules for these shortcuts.
+Duplicate mappings can cause double key presses or stuck modifiers. SimpleVM
+backs up `~/.config/karabiner/karabiner.json` before replacing its own scoped
+rule.
+
+If **Virtual HID ready** does not appear, open Karabiner-Elements once, finish
+its permission prompts, verify that `Karabiner DriverKit VirtualHIDKeyboard`
+appears in its connected devices, then relaunch SimpleVM. If mappings change,
+exit and re-enter immersion so SimpleVM can regenerate the active profile.
+See Karabiner-Elements'
+[required macOS settings](https://karabiner-elements.pqrs.org/docs/manual/misc/required-macos-settings/)
+for version-specific permission screens.
+
 ## Test
 
 Run the platform-independent core suite:
