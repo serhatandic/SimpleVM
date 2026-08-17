@@ -1,3 +1,4 @@
+import AppKit
 import SimpleVMCore
 import SwiftUI
 import UniformTypeIdentifiers
@@ -134,9 +135,28 @@ struct LibraryView: View {
                             }
                         }
                     }
+                    if case .available = image.availability,
+                       image.suggestedExportFileName != nil {
+                        if model.exportingImageIDs.contains(image.id) {
+                            Label(
+                                "Exporting...",
+                                systemImage: "progress.indicator"
+                            )
+                        } else {
+                            Button {
+                                exportImage(image)
+                            } label: {
+                                Label(
+                                    "Export...",
+                                    systemImage: "square.and.arrow.up"
+                                )
+                            }
+                        }
+                    }
                     Button("Delete", role: .destructive) {
                         confirmsRemoval = image
                     }
+                    .disabled(model.exportingImageIDs.contains(image.id))
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -221,6 +241,34 @@ struct LibraryView: View {
                 detection: .unknown,
                 artifactKind: .rootfsArchive
             )
+        }
+    }
+
+    private func exportImage(_ image: MachineImage) {
+        guard let suggestedName = image.suggestedExportFileName else {
+            return
+        }
+        let contentType = UTType(
+            filenameExtension: URL(filePath: suggestedName).pathExtension
+        )
+        guard let destinationURL = FilePicker.chooseSaveFile(
+            suggestedName: suggestedName,
+            allowedContentType: contentType
+        ) else {
+            return
+        }
+        Task {
+            do {
+                try await model.exportImage(
+                    image,
+                    to: destinationURL
+                )
+                NSWorkspace.shared.activateFileViewerSelecting(
+                    [destinationURL]
+                )
+            } catch {
+                model.present(error: error)
+            }
         }
     }
 }

@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core-tests:
+    name: Core tests
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run SimpleVMCore tests
+        run: swift test --package-path Packages/SimpleVMCore
+
+  app-build:
+    name: App build
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build dependencies
+        run: |
+          brew install xcodegen
+          brew install --cask utm
+      - name: Generate the Xcode project
+        run: xcodegen generate
+      - name: Build for Apple Silicon
+        run: |
+          xcodebuild \
+            -project SimpleVM.xcodeproj \
+            -scheme SimpleVM \
+            -configuration Debug \
+            -derivedDataPath .build/DerivedData \
+            -destination 'generic/platform=macOS' \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=NO \
+            DEVELOPMENT_TEAM='' \
+            CODE_SIGN_IDENTITY='-' \
+            CODE_SIGN_STYLE=Manual \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
+            build
+      - name: Build provisioning helper
+        run: swift build --package-path Tools/ProvisioningHelper -c release

@@ -7,6 +7,14 @@ xcuserdata/
 *.xcuserstate
 *.xccheckout
 *.xcscmblueprint
+.env
+.env.*
+*.app
+*.dSYM
+*.dmg
+*.xcarchive
+*.p12
+*.mobileprovision
 
 # Benchmark overlays, captures, and results are machine-local.
 Tools/Benchmarks/.bench/
@@ -18,3 +26,6 @@ Tools/Benchmarks/.bench/
 *.qcow2
 *.vmdk
 *.vmstate
+*.nvram
+*.pvm
+*.utm

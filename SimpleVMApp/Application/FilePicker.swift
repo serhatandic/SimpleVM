@@ -25,6 +25,20 @@ enum FilePicker {
         return present(panel)
     }
 
+    static func chooseSaveFile(
+        suggestedName: String,
+        allowedContentType: UTType? = nil
+    ) -> URL? {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = suggestedName
+        panel.canCreateDirectories = true
+        panel.isExtensionHidden = false
+        if let allowedContentType {
+            panel.allowedContentTypes = [allowedContentType]
+        }
+        return panel.runModal() == .OK ? panel.url : nil
+    }
+
     private static func present(_ panel: NSOpenPanel) -> URL? {
         panel.runModal() == .OK ? panel.url : nil
     }

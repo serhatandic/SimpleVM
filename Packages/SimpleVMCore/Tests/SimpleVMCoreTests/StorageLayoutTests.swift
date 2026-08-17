@@ -100,6 +100,7 @@ func removesOnlyUnreferencedManagedDirectories() async throws {
     defer {
         try? FileManager.default.removeItem(at: rootURL)
     }
+
     let layout = StorageLayout(rootURL: rootURL)
     try layout.initialize()
 
@@ -138,4 +139,75 @@ func removesOnlyUnreferencedManagedDirectories() async throws {
     #expect(!FileManager.default.fileExists(
         atPath: layout.machinesURL.appending(path: orphanedMachineID.uuidString).path
     ))
+}
+
+@Test
+func exportsManagedFilesAtomicallyWithoutMutatingSource() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(
+        path: UUID().uuidString,
+        directoryHint: .isDirectory
+    )
+    defer {
+        try? FileManager.default.removeItem(at: directory)
+    }
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+    )
+    let managedURL = directory.appending(
+        path: "Managed",
+        directoryHint: .isDirectory
+    )
+    let exportsURL = directory.appending(
+        path: "Exports",
+        directoryHint: .isDirectory
+    )
+    try FileManager.default.createDirectory(
+        at: managedURL,
+        withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+        at: exportsURL,
+        withIntermediateDirectories: true
+    )
+    let sourceURL = managedURL.appending(path: "source.raw")
+    let destinationURL = exportsURL.appending(path: "export.raw")
+    let sourceData = Data("managed-image".utf8)
+    try sourceData.write(to: sourceURL)
+    try Data("old-export".utf8).write(to: destinationURL)
+
+    try ManagedFileExporter.export(
+        from: sourceURL,
+        to: destinationURL,
+        protectedRootURL: managedURL
+    )
+
+    #expect(try Data(contentsOf: sourceURL) == sourceData)
+    #expect(try Data(contentsOf: destinationURL) == sourceData)
+    #expect(throws: ManagedFileExportError.destinationMatchesSource) {
+        try ManagedFileExporter.export(
+            from: sourceURL,
+            to: sourceURL
+        )
+    }
+    #expect(throws: ManagedFileExportError.destinationInsideManagedStorage) {
+        try ManagedFileExporter.export(
+            from: sourceURL,
+            to: managedURL.appending(path: "another.raw"),
+            protectedRootURL: managedURL
+        )
+    }
+
+    let managedAliasURL = directory.appending(path: "ManagedAlias")
+    try FileManager.default.createSymbolicLink(
+        at: managedAliasURL,
+        withDestinationURL: managedURL
+    )
+    #expect(throws: ManagedFileExportError.destinationInsideManagedStorage) {
+        try ManagedFileExporter.export(
+            from: sourceURL,
+            to: managedAliasURL.appending(path: "through-alias.raw"),
+            protectedRootURL: managedURL
+        )
+    }
 }

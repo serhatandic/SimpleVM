@@ -50,11 +50,10 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_CFBundleDisplayName: SimpleVM
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.developer-tools
-        INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        INFOPLIST_KEY_NSHumanReadableCopyright: "Copyright 2026 Serhat Andic. All rights reserved."
         CODE_SIGN_ENTITLEMENTS: Config/SimpleVM.entitlements
-        CODE_SIGN_IDENTITY: "Apple Development"
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: C8Y523R7T5
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
         ENABLE_HARDENED_RUNTIME: YES
         ENABLE_DEBUG_DYLIB: NO
         CURRENT_PROJECT_VERSION: 1
@@ -85,9 +84,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.utm-qemu-launcher
         PRODUCT_NAME: UTMQEMULauncher
-        CODE_SIGN_IDENTITY: "Apple Development"
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: C8Y523R7T5
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
         CODE_SIGN_ENTITLEMENTS: Config/UTMQEMULauncher.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         LD_RUNPATH_SEARCH_PATHS:
@@ -106,9 +104,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.app-tests
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGN_IDENTITY: "Apple Development"
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: C8Y523R7T5
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
         TEST_HOST: "$(BUILT_PRODUCTS_DIR)/SimpleVM.app/Contents/MacOS/SimpleVM"
         BUNDLE_LOADER: "$(TEST_HOST)"
 
@@ -123,9 +120,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.ui-tests
         GENERATE_INFOPLIST_FILE: YES
-        CODE_SIGN_IDENTITY: "Apple Development"
-        CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: C8Y523R7T5
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
         TEST_TARGET_NAME: SimpleVM
 
 schemes:

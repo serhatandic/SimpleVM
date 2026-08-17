@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest a focused SimpleVM improvement
+title: "[Feature] "
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem should SimpleVM solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the smallest useful outcome, not just an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Affected backend
+      options:
+        - Apple Virtualization (ARM64)
+        - QEMU (x86_64)
+        - Both
+        - Not backend-specific
+    validations:
+      required: true

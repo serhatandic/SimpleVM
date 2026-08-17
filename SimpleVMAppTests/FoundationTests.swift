@@ -943,10 +943,83 @@ final class FoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testExportsManagedImageAndStoppedMachineDisk() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(
+            at: rootURL,
+            withIntermediateDirectories: true
+        )
+        let sourceURL = rootURL.appending(path: "portable.raw")
+        try SparseDiskCreator.create(
+            at: sourceURL,
+            capacityBytes: 1 * 1_024 * 1_024
+        )
+        let model = AppModel(
+            storageRootURL: rootURL.appending(path: "Library")
+        )
+        await model.initialize()
+        let imageID = try await model.importImage(
+            from: sourceURL,
+            architecture: .arm64,
+            artifactKind: .preinstalledDisk
+        )
+        let image = try XCTUnwrap(
+            model.images.first(where: { $0.id == imageID })
+        )
+        let imageExportURL = rootURL.appending(path: "image-export.raw")
+        try await model.exportImage(image, to: imageExportURL)
+        XCTAssertEqual(
+            try FileSHA256.digest(of: imageExportURL),
+            image.sha256
+        )
+
+        let machineID = try await model.createMachine(
+            name: "Portable",
+            cpuCount: 2,
+            memorySizeBytes: 2 * 1_024 * 1_024 * 1_024,
+            diskSizeBytes: 2 * 1_024 * 1_024,
+            source: .managedImage(imageID),
+            sharedDirectoryPath: nil
+        )
+        let machine = try XCTUnwrap(
+            model.machines.first(where: { $0.id == machineID })
+        )
+        let diskExportURL = rootURL.appending(path: "machine-export.raw")
+        try await model.exportMachineDisk(
+            machine,
+            to: diskExportURL
+        )
+        XCTAssertEqual(
+            try FileManager.default.attributesOfItem(
+                atPath: diskExportURL.path
+            )[.size] as? NSNumber,
+            NSNumber(value: machine.disk.capacityBytes)
+        )
+
+        var runningMachine = machine
+        runningMachine.runtimeState = .running
+        do {
+            try await model.exportMachineDisk(
+                runningMachine,
+                to: rootURL.appending(path: "running.raw")
+            )
+            XCTFail("Expected a running machine export to fail.")
+        } catch {
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Stop the machine before performing this action."
+            )
+        }
+    }
+
+    @MainActor
     func testRealARM64EFIISOStaysRunningWithDisplayAttached() async throws {
         guard let fixturePath = fixturePath(
-            environmentKey: "SIMPLEVM_ARM64_ISO_FIXTURE",
-            fileName: "arm64-iso-path"
+            environmentKey: "SIMPLEVM_ARM64_ISO_FIXTURE"
         ) else {
             throw XCTSkip("Set SIMPLEVM_ARM64_ISO_FIXTURE for the hardware smoke test.")
         }
@@ -1041,14 +1114,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testRealRootFSBootsThroughDirectKernel() async throws {
         guard let diskPath = fixturePath(
-            environmentKey: "SIMPLEVM_ROOTFS_DISK_FIXTURE",
-            fileName: "rootfs-disk-path"
+            environmentKey: "SIMPLEVM_ROOTFS_DISK_FIXTURE"
         ), let kernelPath = fixturePath(
-            environmentKey: "SIMPLEVM_ROOTFS_KERNEL_FIXTURE",
-            fileName: "rootfs-kernel-path"
+            environmentKey: "SIMPLEVM_ROOTFS_KERNEL_FIXTURE"
         ), let initrdPath = fixturePath(
-            environmentKey: "SIMPLEVM_ROOTFS_INITRD_FIXTURE",
-            fileName: "rootfs-initrd-path"
+            environmentKey: "SIMPLEVM_ROOTFS_INITRD_FIXTURE"
         ) else {
             throw XCTSkip("Configure rootfs, kernel, and initrd fixtures.")
         }
@@ -1121,21 +1191,12 @@ final class FoundationTests: XCTestCase {
         )
     }
 
-    private func fixturePath(
-        environmentKey: String,
-        fileName: String
-    ) -> String? {
-        if let path = ProcessInfo.processInfo.environment[environmentKey] {
-            return path
+    private func fixturePath(environmentKey: String) -> String? {
+        guard let path = ProcessInfo.processInfo.environment[environmentKey],
+              !path.isEmpty else {
+            return nil
         }
-        let repositoryURL = URL(filePath: #filePath)
-            .deletingLastPathComponent()
-            .deletingLastPathComponent()
-        let pathURL = repositoryURL
-            .appending(path: ".build/TestFixtures")
-            .appending(path: fileName)
-        return try? String(contentsOf: pathURL, encoding: .utf8)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return path
     }
 
 }

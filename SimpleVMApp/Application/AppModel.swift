@@ -16,6 +16,9 @@ final class AppModel {
     private(set) var catalog: [ImageCatalogEntry] = []
     private(set) var bootProfiles: [LinuxBootProfile] = []
     private(set) var snapshots: [UUID: [MachineSnapshot]] = [:]
+    private(set) var exportingImageIDs: Set<UUID> = []
+    private(set) var exportingMachineIDs: Set<UUID> = []
+    private(set) var startingMachineIDs: Set<UUID> = []
     private(set) var storageURL: URL?
     private(set) var isLoading = true
     private(set) var errorMessage: String?
@@ -568,6 +571,9 @@ final class AppModel {
     }
 
     var hasActiveMachines: Bool {
+        if !startingMachineIDs.isEmpty {
+            return true
+        }
         let states = appleRuntimes.values.map(\.state)
             + qemuRuntimes.values.map(\.state)
         return states.contains {
@@ -613,6 +619,17 @@ final class AppModel {
         guard let machineStore, let layout else {
             present(error: AppModelError.notInitialized)
             return
+        }
+        guard !exportingMachineIDs.contains(machine.id) else {
+            present(error: AppModelError.exportInProgress)
+            return
+        }
+        guard startingMachineIDs.insert(machine.id).inserted else {
+            present(error: AppModelError.machineStartInProgress)
+            return
+        }
+        defer {
+            startingMachineIDs.remove(machine.id)
         }
 
         do {
@@ -680,6 +697,10 @@ final class AppModel {
     }
 
     func ejectInstaller(_ machine: Machine) async {
+        guard !startingMachineIDs.contains(machine.id) else {
+            present(error: AppModelError.machineStartInProgress)
+            return
+        }
         guard runtimeState(for: machine) == .stopped else {
             present(error: AppModelError.machineMustBeStopped)
             return
@@ -694,6 +715,14 @@ final class AppModel {
     func deleteMachine(_ machine: Machine) async {
         guard let machineStore else {
             present(error: AppModelError.notInitialized)
+            return
+        }
+        guard !exportingMachineIDs.contains(machine.id) else {
+            present(error: AppModelError.exportInProgress)
+            return
+        }
+        guard !startingMachineIDs.contains(machine.id) else {
+            present(error: AppModelError.machineStartInProgress)
             return
         }
         guard runtimeState(for: machine) == .stopped else {
@@ -715,6 +744,14 @@ final class AppModel {
     func createSnapshot(_ machine: Machine) async {
         guard let snapshotStore else {
             present(error: AppModelError.notInitialized)
+            return
+        }
+        guard !exportingMachineIDs.contains(machine.id) else {
+            present(error: AppModelError.exportInProgress)
+            return
+        }
+        guard !startingMachineIDs.contains(machine.id) else {
+            present(error: AppModelError.machineStartInProgress)
             return
         }
         guard runtimeState(for: machine) == .stopped else {
@@ -741,6 +778,14 @@ final class AppModel {
     ) async {
         guard let snapshotStore else {
             present(error: AppModelError.notInitialized)
+            return
+        }
+        guard !exportingMachineIDs.contains(machine.id) else {
+            present(error: AppModelError.exportInProgress)
+            return
+        }
+        guard !startingMachineIDs.contains(machine.id) else {
+            present(error: AppModelError.machineStartInProgress)
             return
         }
         guard runtimeState(for: machine) == .stopped else {
@@ -773,6 +818,14 @@ final class AppModel {
     func cloneMachine(_ machine: Machine) async {
         guard let machineStore else {
             present(error: AppModelError.notInitialized)
+            return
+        }
+        guard !exportingMachineIDs.contains(machine.id) else {
+            present(error: AppModelError.exportInProgress)
+            return
+        }
+        guard !startingMachineIDs.contains(machine.id) else {
+            present(error: AppModelError.machineStartInProgress)
             return
         }
         guard runtimeState(for: machine) == .stopped else {
@@ -811,6 +864,10 @@ final class AppModel {
             present(error: AppModelError.notInitialized)
             return
         }
+        guard !exportingImageIDs.contains(image.id) else {
+            present(error: AppModelError.exportInProgress)
+            return
+        }
         guard !machines.contains(where: { $0.sourceImageID == image.id }) else {
             present(error: AppModelError.imageInUse)
             return
@@ -824,6 +881,62 @@ final class AppModel {
         } catch {
             present(error: error)
         }
+    }
+
+    func exportImage(
+        _ image: MachineImage,
+        to destinationURL: URL
+    ) async throws {
+        guard let layout else {
+            throw AppModelError.notInitialized
+        }
+        guard exportingImageIDs.insert(image.id).inserted else {
+            throw AppModelError.exportInProgress
+        }
+        defer {
+            exportingImageIDs.remove(image.id)
+        }
+        let sourceURL = try image.availableURL(layout: layout)
+        try await exportManagedFile(
+            from: sourceURL,
+            to: destinationURL,
+            protectedRootURL: layout.rootURL
+        )
+    }
+
+    func exportMachineDisk(
+        _ machine: Machine,
+        to destinationURL: URL
+    ) async throws {
+        guard let layout else {
+            throw AppModelError.notInitialized
+        }
+        guard exportingMachineIDs.insert(machine.id).inserted else {
+            throw AppModelError.exportInProgress
+        }
+        defer {
+            exportingMachineIDs.remove(machine.id)
+        }
+        guard let currentMachine = machines.first(where: {
+            $0.id == machine.id
+        }) else {
+            throw AppModelError.machineUnavailable
+        }
+        guard !startingMachineIDs.contains(machine.id) else {
+            throw AppModelError.machineStartInProgress
+        }
+        guard machine.runtimeState == .stopped,
+              currentMachine.runtimeState == .stopped else {
+            throw AppModelError.machineMustBeStopped
+        }
+        let sourceURL = try layout.resolve(
+            relativePath: currentMachine.disk.relativePath
+        )
+        try await exportManagedFile(
+            from: sourceURL,
+            to: destinationURL,
+            protectedRootURL: layout.rootURL
+        )
     }
 
     func dismissError() {
@@ -898,6 +1011,20 @@ final class AppModel {
         )
     }
 
+    private func exportManagedFile(
+        from sourceURL: URL,
+        to destinationURL: URL,
+        protectedRootURL: URL
+    ) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            try ManagedFileExporter.export(
+                from: sourceURL,
+                to: destinationURL,
+                protectedRootURL: protectedRootURL
+            )
+        }.value
+    }
+
 }
 
 private enum AppModelError: LocalizedError {
@@ -905,6 +1032,9 @@ private enum AppModelError: LocalizedError {
     case imageInUse
     case catalogEntryUnavailable
     case imageUnavailable
+    case machineUnavailable
+    case exportInProgress
+    case machineStartInProgress
     case missingMachineName
     case machineMustBeStopped
     case invalidOCIReference
@@ -919,6 +1049,12 @@ private enum AppModelError: LocalizedError {
             "The catalog entry for this image is no longer available."
         case .imageUnavailable:
             "The selected image is not available."
+        case .machineUnavailable:
+            "The selected machine is unavailable."
+        case .exportInProgress:
+            "Wait for the current export to finish."
+        case .machineStartInProgress:
+            "Wait for the machine to finish starting."
         case .missingMachineName:
             "Enter a machine name."
         case .machineMustBeStopped:

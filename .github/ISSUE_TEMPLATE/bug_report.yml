@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible SimpleVM problem
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include passwords, VM contents, personal paths, or security-sensitive details.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What went wrong?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable sequence.
+      placeholder: |
+        1. Import...
+        2. Create...
+        3. Start...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include macOS, Mac model, SimpleVM revision, Xcode, UTM, QEMU, guest, and backend.
+      placeholder: |
+        macOS:
+        Mac:
+        SimpleVM revision:
+        Xcode:
+        UTM:
+        QEMU:
+        Guest:
+        Backend:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Paste only the smallest scrubbed excerpt needed to diagnose the issue.
+      render: shell

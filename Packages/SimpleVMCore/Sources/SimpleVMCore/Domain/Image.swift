@@ -69,3 +69,39 @@ public struct MachineImage: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+public extension MachineImage {
+    var suggestedExportFileName: String? {
+        guard artifactKind != .ociReference else {
+            return nil
+        }
+        let originalName: String?
+        switch origin {
+        case .localImport(let fileName):
+            originalName = fileName
+        case .catalog(let url), .remoteURL(let url):
+            originalName = url.lastPathComponent
+        case .oci:
+            originalName = nil
+        }
+        if let originalName, !originalName.isEmpty {
+            return originalName
+        }
+
+        let sanitizedName = name
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let baseName = sanitizedName.isEmpty ? "SimpleVM Image" : sanitizedName
+        let fileExtension: String
+        switch artifactKind {
+        case .installerISO:
+            fileExtension = "iso"
+        case .preinstalledDisk:
+            fileExtension = "raw"
+        case .rootfsArchive:
+            fileExtension = "tar"
+        case .ociReference:
+            return nil
+        }
+        return "\(baseName).\(fileExtension)"
+    }
+}

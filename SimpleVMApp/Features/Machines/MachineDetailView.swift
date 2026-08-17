@@ -1,5 +1,7 @@
+import AppKit
 import SimpleVMCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct MachineDetailView: View {
     @Bindable var model: AppModel
@@ -10,6 +12,12 @@ struct MachineDetailView: View {
 
     private var runtimeState: MachineRuntimeState {
         model.runtimeState(for: machine)
+    }
+
+    private var diskOperationsDisabled: Bool {
+        runtimeState != .stopped
+            || model.exportingMachineIDs.contains(machine.id)
+            || model.startingMachineIDs.contains(machine.id)
     }
 
     var body: some View {
@@ -94,20 +102,34 @@ struct MachineDetailView: View {
                                 await model.ejectInstaller(machine)
                             }
                         }
-                        .disabled(runtimeState != .stopped)
+                        .disabled(diskOperationsDisabled)
                     }
                     Button("Create Snapshot") {
                         Task {
                             await model.createSnapshot(machine)
                         }
                     }
-                    .disabled(runtimeState != .stopped)
+                    .disabled(diskOperationsDisabled)
                     Button("Clone Machine") {
                         Task {
                             await model.cloneMachine(machine)
                         }
                     }
-                    .disabled(runtimeState != .stopped)
+                    .disabled(diskOperationsDisabled)
+                    Button {
+                        exportDisk()
+                    } label: {
+                        Label(
+                            model.exportingMachineIDs.contains(machine.id)
+                                ? "Exporting Disk..."
+                                : "Export Disk...",
+                            systemImage:
+                                model.exportingMachineIDs.contains(machine.id)
+                                    ? "progress.indicator"
+                                    : "square.and.arrow.up"
+                        )
+                    }
+                    .disabled(diskOperationsDisabled)
                     if let machineSnapshots = model.snapshots[machine.id],
                        !machineSnapshots.isEmpty {
                         Menu("Snapshots") {
@@ -121,6 +143,7 @@ struct MachineDetailView: View {
                                             )
                                         }
                                     }
+                                    .disabled(diskOperationsDisabled)
                                     Button("Delete", role: .destructive) {
                                         Task {
                                             await model.deleteSnapshot(
@@ -137,7 +160,7 @@ struct MachineDetailView: View {
                     Button("Delete Machine", role: .destructive) {
                         confirmsDeletion = true
                     }
-                    .disabled(runtimeState != .stopped)
+                    .disabled(diskOperationsDisabled)
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -344,38 +367,74 @@ struct MachineDetailView: View {
         }
     }
 
+    private func exportDisk() {
+        let sanitizedName = machine.name
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        let baseName = sanitizedName.isEmpty ? "SimpleVM Disk" : sanitizedName
+        guard let destinationURL = FilePicker.chooseSaveFile(
+            suggestedName: "\(baseName).raw",
+            allowedContentType:
+                UTType(filenameExtension: "raw") ?? .data
+        ) else {
+            return
+        }
+        Task {
+            do {
+                try await model.exportMachineDisk(
+                    machine,
+                    to: destinationURL
+                )
+                NSWorkspace.shared.activateFileViewerSelecting(
+                    [destinationURL]
+                )
+            } catch {
+                model.present(error: error)
+            }
+        }
+    }
+
     @ViewBuilder
     private var lifecycleControls: some View {
-        switch runtimeState {
-        case .stopped, .failed:
-            Button {
-                Task {
-                    await model.start(machine)
-                }
-            } label: {
-                Label("Start", systemImage: "play.fill")
-            }
-            .disabled(!machine.provisioningState.canStart)
-        case .running:
-            Button {
-                Task {
-                    await model.requestStop(machine)
-                }
-            } label: {
-                Label("Shut Down", systemImage: "stop.fill")
-            }
-        case .stopping:
-            Button {
-                Task {
-                    await model.forceStop(machine)
-                }
-            } label: {
-                Label("Force Stop", systemImage: "stop.fill")
-            }
-        case .starting:
+        if model.startingMachineIDs.contains(machine.id) {
             ProgressView()
                 .controlSize(.small)
-                .accessibilityLabel("Starting machine")
+                .accessibilityLabel("Preparing machine")
+        } else {
+            switch runtimeState {
+            case .stopped, .failed:
+                Button {
+                    Task {
+                        await model.start(machine)
+                    }
+                } label: {
+                    Label("Start", systemImage: "play.fill")
+                }
+                .disabled(
+                    !machine.provisioningState.canStart
+                        || model.exportingMachineIDs.contains(machine.id)
+                )
+            case .running:
+                Button {
+                    Task {
+                        await model.requestStop(machine)
+                    }
+                } label: {
+                    Label("Shut Down", systemImage: "stop.fill")
+                }
+            case .stopping:
+                Button {
+                    Task {
+                        await model.forceStop(machine)
+                    }
+                } label: {
+                    Label("Force Stop", systemImage: "stop.fill")
+                }
+            case .starting:
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityLabel("Starting machine")
+            }
         }
     }
 }

@@ -13,6 +13,34 @@ func loadsDistributionNeutralBundledCatalog() throws {
     #expect(entry.sha256.count == 64)
 }
 
+@Test
+func preservesPortableImageExportNames() {
+    let imported = MachineImage(
+        name: "Ubuntu",
+        architecture: .arm64,
+        artifactKind: .installerISO,
+        origin: .localImport(originalFileName: "ubuntu-26.04.iso")
+    )
+    let downloaded = MachineImage(
+        name: "Omarchy",
+        architecture: .x86_64,
+        artifactKind: .installerISO,
+        origin: .catalog(
+            URL(string: "https://example.test/omarchy-4.0.0.iso")!
+        )
+    )
+    let oci = MachineImage(
+        name: "example/image:latest",
+        architecture: .arm64,
+        artifactKind: .ociReference,
+        origin: .oci("example/image:latest")
+    )
+
+    #expect(imported.suggestedExportFileName == "ubuntu-26.04.iso")
+    #expect(downloaded.suggestedExportFileName == "omarchy-4.0.0.iso")
+    #expect(oci.suggestedExportFileName == nil)
+}
+
 @Test(arguments: [
     ("EFI/BOOT/BOOTAA64.EFI", ISOArchitectureDetection.architecture(.arm64)),
     ("EFI/BOOT/BOOTX64.EFI", ISOArchitectureDetection.architecture(.x86_64)),

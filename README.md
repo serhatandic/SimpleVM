@@ -1,58 +1,170 @@
 # SimpleVM
 
-SimpleVM is a native, distribution-neutral Linux virtual machine manager for
-macOS on Apple Silicon.
+<div align="center">
 
-The app supports:
+<!-- Replace this comment and spacer with the product image. -->
 
-- Generic ARM64 EFI ISO installation with Apple Virtualization
-- x86_64 full-system compatibility through an external QEMU installation
-- Managed preinstalled raw disks with APFS copy-on-write provisioning
-- Rootfs archives and OCI images through a separately signed provisioning helper
-- Rosetta sharing for supported ARM64 Linux guests
-- Persistent machine disks, EFI state, snapshots, restore, and instant clones
-- NAT networking, QEMU TCP port forwarding, virtiofs shares, and versioned
-  guest-agent transports
+<br><br><br><br><br><br>
 
-## Development
+</div>
 
-Requirements:
+[![CI](https://github.com/serhatandic/SimpleVM/actions/workflows/ci.yml/badge.svg)](https://github.com/serhatandic/SimpleVM/actions/workflows/ci.yml)
+[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)](https://www.apple.com/macos/)
+[![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE.md)
+
+SimpleVM is a focused, source-available Linux virtual machine manager for
+Apple Silicon Macs. It uses Apple's Virtualization framework for native ARM64
+guests and a QEMU/SPICE/Metal path for x86_64 compatibility.
+
+> [!IMPORTANT]
+> SimpleVM is currently a `0.1.0` source build. There is no signed DMG or
+> notarized binary yet.
+
+## Highlights
+
+- Standard ARM64 EFI ISO installation with near-native Apple Virtualization
+- x86_64 full-system emulation with QEMU TCG and a Metal-rendered SPICE display
+- Immersive fullscreen that forwards macOS shortcuts and workspace swipes
+- Host-derived guest resolution, absolute pointer input, and single-cursor mode
+- Managed image imports and downloads with architecture detection and checksums
+- Exportable library media and stopped-machine raw disks for migration
+- Persistent disks, EFI state, snapshots, restore, and APFS-backed clones
+- NAT networking, TCP port forwarding, and virtiofs directory sharing
+- Rosetta support for Intel Linux binaries in supported ARM64 guests
+- Preinstalled raw disks, rootfs archives, and OCI image provisioning
+
+SimpleVM has been exercised with Ubuntu 26.04 ARM64 and Omarchy 4.0 x86_64.
+Other standard Linux EFI installers may work, but are not yet part of the
+release test matrix.
+
+## Architecture
+
+| Guest | Backend | CPU | Display |
+| --- | --- | --- | --- |
+| ARM64 Linux | Apple Virtualization | Hardware virtualization | `VZVirtualMachineView` |
+| x86_64 Linux | QEMU | TCG software emulation | UTM QEMU, SPICE, CocoaSpice, Metal |
+
+The x86_64 display path is GPU-accelerated, but its CPU remains fully emulated.
+It is intended for compatibility and will not match native ARM64 performance.
+
+## Requirements
+
+### Host and toolchain
 
 - Apple Silicon Mac
 - macOS 15 or newer
-- Xcode 16 or newer
+- Xcode with Swift 6.2 or newer
 - [XcodeGen](https://github.com/yonaskolb/XcodeGen)
-- QEMU from Homebrew or a configured `SIMPLEVM_QEMU_PREFIX` for x86_64 guests
+- GNU Make
+
+### Runtime dependencies
+
+- [UTM](https://mac.getutm.app/) installed at `/Applications/UTM.app`
+  - Required by the current source build for its QEMU and SPICE frameworks
+  - UTM 4.7.5 is the currently validated version
+- [QEMU](https://www.qemu.org/) from Homebrew
+  - Required for x86_64 disk tooling and the software-display fallback
+- [Karabiner-Elements](https://karabiner-elements.pqrs.org/) for reliable
+  macOS-style shortcut mapping in native ARM64 immersion
+
+Karabiner-Elements is not required for ordinary windowed input or the QEMU
+keyboard path.
+
+## Build from source
 
 ```sh
-brew install xcodegen
-make test
+brew install xcodegen qemu
+brew install --cask utm
+
+git clone https://github.com/serhatandic/SimpleVM.git
+cd SimpleVM
 make run
 ```
 
 `project.yml` is the source of truth for the generated Xcode project.
-`make build` also builds, embeds, and signs the rootfs/OCI provisioning helper.
+`make build` also builds and embeds the separately signed rootfs/OCI
+provisioning helper.
 
-## Using the native ARM64 milestone
+The generated project uses portable ad-hoc signing by default. If an Apple
+Development identity is available, `make build` uses it when re-signing the
+app and helper. A stable development identity prevents macOS from treating
+each rebuild as a new app when granting Accessibility permission.
 
-1. Launch SimpleVM with `make run`.
-2. Open **Images** in the sidebar.
-3. Import any ARM64 EFI installer ISO, or download the bundled Ubuntu catalog
-   entry.
-4. Choose **New Machine…**, select the installer, and configure CPU, memory, and
-   disk.
-5. Start the machine and complete the guest installer.
-6. Shut the guest down, choose **Eject Installer**, then start it from its
-   persistent system disk.
+## Create a machine
 
-Local and catalog installer media use the same managed image, machine, storage,
-and Apple Virtualization paths. x86_64 media is identified but requires the
-future QEMU compatibility backend.
+1. Open **Images** in the sidebar.
+2. Import a Linux EFI installer ISO, or download a catalog image.
+3. Choose **New Machine...**, select the image, and configure CPU, memory,
+   storage, sharing, and port forwarding.
+4. Start the machine and complete the guest installer.
+5. Shut the guest down, choose **Eject Installer**, and boot from its
+   persistent disk.
 
-## ARM64 EFI hardware smoke test
+Machine state is stored in:
 
-The opt-in app-hosted test boots a real ARM64 EFI ISO and verifies graphical
-framebuffer output. The fixture is never committed:
+```text
+~/Library/Application Support/SimpleVM/
+```
+
+VM disks and installer media are intentionally excluded from Git.
+
+### Export and migrate
+
+- In **Images**, open an available image's action menu and choose
+  **Export...**. The original media filename is preserved when possible.
+- On a stopped machine, open **Machine actions** and choose
+  **Export Disk...**. The result is a raw disk that can be brought into
+  another SimpleVM installation with **Import Disk**.
+
+Machine exports contain the disk only. CPU, memory, networking, EFI variables,
+shares, snapshots, and other machine settings are not included.
+
+## Immersion and permissions
+
+Immersion removes the surrounding SimpleVM interface and routes host-level
+keyboard and workspace input into the guest. The reserved exit chord is:
+
+```text
+Control + Option + Command + Escape
+```
+
+SimpleVM asks for macOS Accessibility permission when system-level input
+capture is needed. That permission allows the app to intercept shortcuts such
+as `Command+Tab` and suppress macOS workspace swipes while the guest is
+immersive.
+
+For Apple Virtualization guests, SimpleVM can install one app-scoped
+Karabiner-Elements rule for reliable virtual-HID modifier delivery. The rule is
+active only while SimpleVM immersion is active. SimpleVM does not need
+Karabiner-Elements for QEMU guests.
+
+## Test
+
+Run the platform-independent core suite:
+
+```sh
+swift test --package-path Packages/SimpleVMCore
+```
+
+Run the deterministic core suite and strict app build:
+
+```sh
+make test
+```
+
+Run app-hosted integration tests and UI automation separately:
+
+```sh
+make app-test
+make ui-test
+```
+
+The hosted suites require the build dependencies above. XCTest injection can
+take several minutes on first launch while macOS validates the external
+frameworks. UI tests also require macOS Developer Mode and XCTest automation
+approval.
+
+An opt-in hardware smoke test can boot a real ARM64 EFI installer:
 
 ```sh
 SIMPLEVM_ARM64_ISO_FIXTURE=/absolute/path/to/arm64-installer.iso \
@@ -63,3 +175,42 @@ SIMPLEVM_ARM64_ISO_FIXTURE=/absolute/path/to/arm64-installer.iso \
     -only-testing:SimpleVMAppTests/FoundationTests/testRealARM64EFIISOStaysRunningWithDisplayAttached \
     test
 ```
+
+The fixture path and installer image remain local and are never committed.
+
+## Current limitations
+
+- Linux guests only
+- Apple Silicon hosts only
+- No prebuilt or notarized release artifact
+- x86_64 CPU execution uses TCG software emulation
+- The accelerated x86_64 build currently expects UTM in `/Applications`
+- Guest tools are not installed automatically
+- System workspace-swipe capture relies on macOS event behavior that may
+  change between macOS releases
+
+## License
+
+SimpleVM's original code is available under the
+[PolyForm Noncommercial License 1.0.0](LICENSE.md). It is source-available and
+free for personal and other noncommercial use. Commercial use requires a
+separate license from the copyright holder.
+
+This is not an OSI-approved open-source license. Third-party components remain
+under their own licenses; see [Third-Party Notices](THIRD_PARTY_NOTICES.md).
+
+## Contributing
+
+Bug reports and feature requests are welcome through GitHub Issues. To keep
+commercial rights centralized, code pull requests are not currently accepted.
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue.
+
+## Acknowledgments
+
+SimpleVM builds on Apple's
+[Virtualization framework](https://developer.apple.com/documentation/virtualization),
+[UTM](https://github.com/utmapp/UTM),
+[QEMU](https://www.qemu.org/),
+[CocoaSpice](https://github.com/utmapp/CocoaSpice),
+[Karabiner-Elements](https://github.com/pqrs-org/Karabiner-Elements), and
+[Apple containerization](https://github.com/apple/containerization).
