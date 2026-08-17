@@ -127,10 +127,15 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
                 resourceDirectoryURL: directory
             )
         ),
-        vncPort: 5_902
+        vncPort: 5_902,
+        displaySize: QEMUDisplaySize(width: 3_024, height: 1_964)
     )
     #expect(accelerated.spiceSocketURL != nil)
-    #expect(accelerated.arguments.contains("virtio-vga-gl,xres=1280,yres=800"))
+    #expect(accelerated.arguments.contains("virtio-vga-gl,xres=3024,yres=1964"))
+    #expect(accelerated.arguments.contains("spicevmc,id=vdagent,name=vdagent"))
+    #expect(accelerated.arguments.contains(
+        "virtserialport,chardev=vdagent,name=com.redhat.spice.0"
+    ))
     #expect(accelerated.arguments.contains("virtio-keyboard-pci"))
     #expect(accelerated.arguments.contains("virtio-tablet-pci"))
     #expect(accelerated.arguments.contains("tcg,thread=multi,tb-size=2048"))

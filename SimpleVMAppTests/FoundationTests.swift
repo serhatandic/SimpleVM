@@ -365,6 +365,31 @@ final class FoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testMappedDigitsCannotRemainStuckOrRepeatFromHost() {
+        var events: [GuestKeyEvent] = []
+        let router = GuestInputRouter { events.append($0) }
+        router.updateHostModifiers([.command])
+        let chord = GuestChord(keyCode: 18, modifiers: [.command])
+        router.press(
+            hostKeyCode: 18,
+            chord: chord,
+            repeats: false,
+            hostModifiers: [.command]
+        )
+        router.press(
+            hostKeyCode: 18,
+            chord: chord,
+            repeats: true,
+            hostModifiers: [.command]
+        )
+        router.updateHostModifiers([])
+        router.release(hostKeyCode: 18)
+
+        XCTAssertEqual(events.map(\.keyCode), [55, 18, 18, 55])
+        XCTAssertEqual(events.map(\.isDown), [true, true, false, false])
+    }
+
+    @MainActor
     func testMappedShortcutsEmitModifiersBeforeGuestKeys() {
         let settings = KeyboardMappingSettings.shared
         let previousPreset = settings.preset
@@ -455,6 +480,58 @@ final class FoundationTests: XCTestCase {
             settings.workspaceChord(direction: .next),
             GuestChord(keyCode: 48, modifiers: [.command])
         )
+    }
+
+    @MainActor
+    func testOmarchySystemBindingsReachHyprlandUnchanged() {
+        let settings = KeyboardMappingSettings.shared
+        let previousPreset = settings.preset
+        defer { settings.preset = previousPreset }
+        settings.preset = .hyprland
+
+        for (keyCode, hostModifiers, expectedModifiers) in [
+            (
+                UInt16(123),
+                NSEvent.ModifierFlags([.command, .shift]),
+                NSEvent.ModifierFlags([.command, .shift])
+            ),
+            (
+                UInt16(3),
+                NSEvent.ModifierFlags([.command, .shift]),
+                NSEvent.ModifierFlags([.command, .shift])
+            ),
+            (
+                UInt16(36),
+                NSEvent.ModifierFlags([.command, .shift]),
+                NSEvent.ModifierFlags([.command, .shift])
+            ),
+            (
+                UInt16(11),
+                NSEvent.ModifierFlags([.command, .shift]),
+                NSEvent.ModifierFlags([.command, .shift])
+            ),
+            (
+                UInt16(45),
+                NSEvent.ModifierFlags([.command, .shift]),
+                NSEvent.ModifierFlags([.command, .shift])
+            ),
+            (
+                UInt16(18),
+                NSEvent.ModifierFlags([.command, .shift, .option]),
+                NSEvent.ModifierFlags([.command, .shift, .option])
+            )
+        ] {
+            XCTAssertEqual(
+                settings.chord(
+                    keyCode: keyCode,
+                    modifiers: hostModifiers
+                ),
+                GuestChord(
+                    keyCode: keyCode,
+                    modifiers: expectedModifiers
+                )
+            )
+        }
     }
 
     @MainActor

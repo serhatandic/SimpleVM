@@ -5,8 +5,10 @@ import Foundation
 final class SPICEConnectionController: NSObject {
     private(set) var display: CSDisplay?
     private(set) var input: CSInput?
+    private(set) var supportsDisplayResize = false
 
     var displayHandler: ((CSDisplay) -> Void)?
+    var displayResizeSupportHandler: ((Bool) -> Void)?
     var errorHandler: ((any Error) -> Void)?
 
     private var connection: CSConnection?
@@ -54,6 +56,7 @@ final class SPICEConnectionController: NSObject {
         connection = nil
         display = nil
         input = nil
+        supportsDisplayResize = false
     }
 
     func sendKey(_ event: GuestKeyEvent) {
@@ -202,11 +205,22 @@ extension SPICEConnectionController: CSConnectionDelegate {
     nonisolated func spiceAgentConnected(
         _ connection: CSConnection,
         supportingFeatures features: CSConnectionAgentFeature
-    ) {}
+    ) {
+        let supportsDisplayResize = features.rawValue != 0
+        Task { @MainActor [weak self] in
+            self?.supportsDisplayResize = supportsDisplayResize
+            self?.displayResizeSupportHandler?(supportsDisplayResize)
+        }
+    }
 
     nonisolated func spiceAgentDisconnected(
         _ connection: CSConnection
-    ) {}
+    ) {
+        Task { @MainActor [weak self] in
+            self?.supportsDisplayResize = false
+            self?.displayResizeSupportHandler?(false)
+        }
+    }
 
     nonisolated func spiceForwardedPortOpened(
         _ connection: CSConnection,

@@ -87,6 +87,10 @@ final class QEMUMachineRuntime {
         do {
             let runtime = try discoverRuntime()
             log("QEMU discovered at \(runtime.systemExecutableURL.path)")
+            let displaySize = preferredDisplaySize()
+            log(
+                "initial display \(displaySize.width)x\(displaySize.height)"
+            )
             let port = try await LoopbackPortAllocator.allocate()
             log("reserved VNC port \(port)")
             var releasesPortReservation = true
@@ -101,7 +105,8 @@ final class QEMUMachineRuntime {
                 installerURL: installerURL,
                 backendStateURL: backendStateURL,
                 runtime: runtime,
-                vncPort: port
+                vncPort: port,
+                displaySize: displaySize
             )
             log("configuration built")
             let controller = QEMUProcessController { [weak self] processState in
@@ -132,6 +137,21 @@ final class QEMUMachineRuntime {
                 }
                 spice.errorHandler = { [weak self] error in
                     self?.errorHandler?(error)
+                }
+                spice.displayResizeSupportHandler = { [weak self] supported in
+                    guard let self else { return }
+                    guard supported else {
+                        self.lastRequestedDisplaySize = nil
+                        return
+                    }
+                    guard let size = self.spiceDisplayView?
+                            .preferredGuestPixelSize else {
+                        return
+                    }
+                    self.requestDisplaySize(
+                        width: Int(size.width),
+                        height: Int(size.height)
+                    )
                 }
                 spiceController = spice
                 usesAcceleratedDisplay = true
@@ -188,22 +208,31 @@ final class QEMUMachineRuntime {
     }
 
     func requestDisplaySize(width: Int, height: Int) {
-        if let display = spiceController?.display {
+        let displaySize = QEMUDisplaySize(width: width, height: height)
+        let requested = (
+            UInt16(clamping: displaySize.width),
+            UInt16(clamping: displaySize.height)
+        )
+        if let spiceController {
+            guard spiceController.supportsDisplayResize,
+                  let display = spiceController.display else {
+                return
+            }
+            guard lastRequestedDisplaySize?.0 != requested.0
+                    || lastRequestedDisplaySize?.1 != requested.1 else {
+                return
+            }
+            lastRequestedDisplaySize = requested
             display.requestResolution(
-                CGRect(x: 0, y: 0, width: width, height: height)
+                CGRect(
+                    x: 0,
+                    y: 0,
+                    width: Int(requested.0),
+                    height: Int(requested.1)
+                )
             )
             return
         }
-        let scale = min(
-            1,
-            min(1_280 / Double(max(width, 1)), 800 / Double(max(height, 1)))
-        )
-        let width = UInt16(clamping: max(Int(Double(width) * scale), 640))
-        let height = UInt16(clamping: max(Int(Double(height) * scale), 480))
-        let requested = (
-            width - (width % 8),
-            height - (height % 8)
-        )
         guard lastRequestedDisplaySize?.0 != requested.0
                 || lastRequestedDisplaySize?.1 != requested.1 else {
             return
@@ -469,6 +498,7 @@ final class QEMUMachineRuntime {
         processController = nil
         pressedKeysyms.removeAll()
         pressedModifierKeyCodes.removeAll()
+        lastRequestedDisplaySize = nil
     }
 
     private func discoverRuntime() throws -> QEMURuntime {
@@ -499,6 +529,22 @@ final class QEMUMachineRuntime {
             ),
             displayBackend: .spiceGL(
                 resourceDirectoryURL: resourcesURL
+            )
+        )
+    }
+
+    private func preferredDisplaySize() -> QEMUDisplaySize {
+        guard let screen = NSApp.keyWindow?.screen
+                ?? NSApp.mainWindow?.screen
+                ?? NSScreen.main else {
+            return .fallback
+        }
+        return QEMUDisplaySize(
+            width: Int(
+                (screen.frame.width * screen.backingScaleFactor).rounded()
+            ),
+            height: Int(
+                (screen.frame.height * screen.backingScaleFactor).rounded()
             )
         )
     }

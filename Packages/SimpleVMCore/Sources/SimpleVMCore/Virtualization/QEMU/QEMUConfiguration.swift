@@ -25,6 +25,18 @@ public struct QEMUConfiguration: Equatable, Sendable {
     }
 }
 
+public struct QEMUDisplaySize: Equatable, Sendable {
+    public static let fallback = QEMUDisplaySize(width: 1_280, height: 800)
+
+    public let width: Int
+    public let height: Int
+
+    public init(width: Int, height: Int) {
+        self.width = max(640, width)
+        self.height = max(480, height)
+    }
+}
+
 public enum QEMUConfigurationBuilder {
     public static func make(
         machine: Machine,
@@ -32,7 +44,8 @@ public enum QEMUConfigurationBuilder {
         installerURL: URL?,
         backendStateURL: URL,
         runtime: QEMURuntime,
-        vncPort: UInt16
+        vncPort: UInt16,
+        displaySize: QEMUDisplaySize = .fallback
     ) throws -> QEMUConfiguration {
         guard machine.spec.architecture == .x86_64 else {
             throw QEMUConfigurationError.unsupportedArchitecture
@@ -69,6 +82,8 @@ public enum QEMUConfigurationBuilder {
         let serialURL = backendStateURL.appending(path: "serial.log")
         let memoryMiB = max(512, machine.spec.memorySizeBytes / 1_024 / 1_024)
         let displayNumber = Int(vncPort) - 5_900
+        let displayDeviceSize =
+            "xres=\(displaySize.width),yres=\(displaySize.height)"
 
         let forwarding = machine.spec.portForwards.map {
             "hostfwd=tcp:127.0.0.1:\($0.hostPort)-:\($0.guestPort)"
@@ -117,7 +132,7 @@ public enum QEMUConfigurationBuilder {
             arguments.append(contentsOf: [
                 "-display", "none",
                 "-vnc", "127.0.0.1:\(displayNumber)",
-                "-device", "virtio-vga,xres=1280,yres=800",
+                "-device", "virtio-vga,\(displayDeviceSize)",
                 "-device", "qemu-xhci",
                 "-device", "usb-kbd",
                 "-device", "usb-tablet"
@@ -128,7 +143,10 @@ public enum QEMUConfigurationBuilder {
                 "-display", "none",
                 "-spice",
                 "unix=on,addr=\(spiceURL.path),disable-ticketing=on,gl=on,image-compression=off,playback-compression=off,streaming-video=off",
-                "-device", "virtio-vga-gl,xres=1280,yres=800",
+                "-device", "virtio-vga-gl,\(displayDeviceSize)",
+                "-chardev", "spicevmc,id=vdagent,name=vdagent",
+                "-device",
+                "virtserialport,chardev=vdagent,name=com.redhat.spice.0",
                 "-device", "virtio-keyboard-pci",
                 "-device", "virtio-tablet-pci"
             ])

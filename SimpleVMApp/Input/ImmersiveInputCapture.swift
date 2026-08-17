@@ -158,6 +158,7 @@ final class ImmersiveInputCapture {
         }
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             releaseNativeGestureModifier()
+            router.releaseAll()
             if let tap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
@@ -210,7 +211,8 @@ final class ImmersiveInputCapture {
             router.press(
                 hostKeyCode: keyCode,
                 chord: chord,
-                repeats: repeats
+                repeats: repeats,
+                hostModifiers: modifiers
             )
             return nil
         case .keyUp:
@@ -354,6 +356,8 @@ final class ImmersiveInputCapture {
 final class GuestInputRouter {
     private let keyEventHandler: (GuestKeyEvent) -> Void
     private var activeChords: [UInt16: GuestChord] = [:]
+    private var activeHostModifiers:
+        [UInt16: NSEvent.ModifierFlags] = [:]
     private var guestModifierFlags: NSEvent.ModifierFlags = []
     private var pointerModifierFlags: NSEvent.ModifierFlags = []
     private var hostModifierFlags: NSEvent.ModifierFlags = []
@@ -366,19 +370,22 @@ final class GuestInputRouter {
     func press(
         hostKeyCode: UInt16,
         chord: GuestChord,
-        repeats: Bool
+        repeats: Bool,
+        hostModifiers: NSEvent.ModifierFlags = []
     ) {
-        let resolved = activeChords[hostKeyCode] ?? chord
-        if !repeats {
-            latchedModifierFlags = resolved.modifiers
-            activeChords[hostKeyCode] = resolved
-            synchronizeGuestModifiers(including: resolved.modifiers)
+        guard !repeats, activeChords[hostKeyCode] == nil else {
+            return
         }
+        let resolved = chord
+        latchedModifierFlags = resolved.modifiers
+        activeChords[hostKeyCode] = resolved
+        activeHostModifiers[hostKeyCode] = normalized(hostModifiers)
+        synchronizeGuestModifiers(including: resolved.modifiers)
         emitKey(
             keyCode: resolved.keyCode,
             isDown: true,
             modifiers: resolved.modifiers,
-            repeats: repeats
+            repeats: false
         )
     }
 
@@ -388,6 +395,7 @@ final class GuestInputRouter {
         ) else {
             return
         }
+        activeHostModifiers.removeValue(forKey: hostKeyCode)
         emitKey(
             keyCode: chord.keyCode,
             isDown: false,
@@ -404,6 +412,18 @@ final class GuestInputRouter {
 
     func updateHostModifiers(_ modifiers: NSEvent.ModifierFlags) {
         let updated = normalized(modifiers)
+        let keysToRelease = activeHostModifiers.compactMap {
+            keyCode,
+            required -> UInt16? in
+            guard !required.isEmpty,
+                  updated.intersection(required) != required else {
+                return nil
+            }
+            return keyCode
+        }
+        for keyCode in keysToRelease {
+            release(hostKeyCode: keyCode)
+        }
         if hostModifierFlags.contains(.command)
             && !updated.contains(.command) {
             latchedModifierFlags = []
@@ -459,6 +479,7 @@ final class GuestInputRouter {
             )
         }
         activeChords.removeAll()
+        activeHostModifiers.removeAll()
         pointerModifierFlags = []
         hostModifierFlags = []
         latchedModifierFlags = []

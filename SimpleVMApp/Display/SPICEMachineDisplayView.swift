@@ -57,6 +57,7 @@ final class SPICEFramebufferNSView: MTKView {
             if oldValue !== display, let display {
                 display.addRenderer(renderer)
             }
+            needsLayout = true
         }
     }
 
@@ -65,12 +66,23 @@ final class SPICEFramebufferNSView: MTKView {
     private var buttonMask: UInt8 = 0
     private var cursorHidden = false
     private var appObservers: [NSObjectProtocol] = []
+    private var resizeTask: Task<Void, Never>?
 
     private var renderer: CSRenderer {
         spiceRenderer
     }
 
     override var acceptsFirstResponder: Bool { true }
+
+    var preferredGuestPixelSize: CGSize? {
+        guard drawableSize.width > 0, drawableSize.height > 0 else {
+            return nil
+        }
+        return CGSize(
+            width: max(640, drawableSize.width.rounded()),
+            height: max(480, drawableSize.height.rounded())
+        )
+    }
 
     init() {
         guard let device = MTLCreateSystemDefaultDevice() else {
@@ -150,16 +162,16 @@ final class SPICEFramebufferNSView: MTKView {
 
     override func layout() {
         super.layout()
-        guard let display, display.displaySize.width > 0,
-              display.displaySize.height > 0 else {
-            return
+        if let display, display.displaySize.width > 0,
+           display.displaySize.height > 0 {
+            let scale = min(
+                drawableSize.width / display.displaySize.width,
+                drawableSize.height / display.displaySize.height
+            )
+            spiceRenderer.viewportScale = scale
+            spiceRenderer.viewportOrigin = .zero
         }
-        let scale = min(
-            drawableSize.width / display.displaySize.width,
-            drawableSize.height / display.displaySize.height
-        )
-        spiceRenderer.viewportScale = scale
-        spiceRenderer.viewportOrigin = .zero
+        scheduleResolutionRequest()
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -249,6 +261,20 @@ final class SPICEFramebufferNSView: MTKView {
     }
 
     override func keyDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command) {
+            guard !event.isARepeat else { return }
+            runtime?.sendKeyEvent(event)
+            runtime?.sendGuestKeyEvent(
+                GuestKeyEvent(
+                    keyCode: event.keyCode,
+                    isDown: false,
+                    isRepeat: false,
+                    modifiers: event.modifierFlags,
+                    isModifier: false
+                )
+            )
+            return
+        }
         runtime?.sendKeyEvent(event)
     }
 
@@ -258,6 +284,15 @@ final class SPICEFramebufferNSView: MTKView {
 
     override func flagsChanged(with event: NSEvent) {
         runtime?.sendKeyEvent(event)
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        guard event.type == .keyDown,
+              event.modifierFlags.contains(.command) else {
+            return super.performKeyEquivalent(with: event)
+        }
+        keyDown(with: event)
+        return true
     }
 
     private func sendPointer(_ event: NSEvent) {
@@ -283,6 +318,8 @@ final class SPICEFramebufferNSView: MTKView {
     }
 
     func prepareForRemoval() {
+        resizeTask?.cancel()
+        resizeTask = nil
         restoreCursor()
         for observer in appObservers {
             NotificationCenter.default.removeObserver(observer)
@@ -300,5 +337,18 @@ final class SPICEFramebufferNSView: MTKView {
         guard cursorHidden else { return }
         NSCursor.unhide()
         cursorHidden = false
+    }
+
+    private func scheduleResolutionRequest() {
+        guard let targetSize = preferredGuestPixelSize else { return }
+        resizeTask?.cancel()
+        resizeTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.runtime?.requestDisplaySize(
+                width: Int(targetSize.width),
+                height: Int(targetSize.height)
+            )
+        }
     }
 }

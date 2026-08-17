@@ -182,12 +182,18 @@ final class KeyboardMappingSettings {
         case .hyprland:
             Self.sharedDescriptions + [
                 ("⌘W / ⌘Q", "Super+W"),
+                ("⌘↩", "Super+Return · Terminal"),
+                ("⇧⌘↩", "Super+Shift+Return · Browser"),
+                ("⇧⌘F", "Super+Shift+F · Files"),
+                ("⇧⌘N", "Super+Shift+N · Editor"),
                 ("⌘Space", "Super+Space"),
                 ("⌘Tab", "Alt+Tab"),
                 ("⇧⌘Tab", "Alt+Shift+Tab"),
+                ("⌘Arrow", "Super+Arrow · Focus"),
+                ("⇧⌘Arrow", "Super+Shift+Arrow · Swap"),
                 ("⌃⌘F", "Super+F"),
                 ("⌘1…0", "Super+1…0"),
-                ("Workspace swipe", "Super+Tab / Super+Shift+Tab")
+                ("Workspace swipe", "Previous / next workspace")
             ]
         }
     }
@@ -279,18 +285,82 @@ final class KeyboardMappingSettings {
             add(48, [.command, .shift], [.option, .shift])
             add(3, [.command, .control], [], guestKeyCode: 103)
         case .hyprland:
+            for keyCode in letterKeyCodes {
+                add(
+                    keyCode,
+                    [.command, .shift],
+                    [.command, .shift]
+                )
+            }
             add(13, [.command], [.command])
             add(12, [.command], [.command], guestKeyCode: 13)
+            add(36, [.command], [.command])
+            add(36, [.command, .shift], [.command, .shift])
+            add(36, [.command, .option], [.command, .option])
+            add(36, [.command, .control], [.command, .control])
             add(49, [.command], [.command])
             add(48, [.command], [.option])
             add(48, [.command, .shift], [.option, .shift])
             add(3, [.command, .control], [.command])
+            add(
+                3,
+                [.command, .shift, .option],
+                [.command, .shift, .option]
+            )
+            add(
+                11,
+                [.command, .shift, .option],
+                [.command, .shift, .option]
+            )
+            for keyCode: UInt16 in [46, 0, 14, 5, 7] {
+                add(
+                    keyCode,
+                    [.command, .shift, .option],
+                    [.command, .shift, .option]
+                )
+            }
+            add(
+                5,
+                [.command, .shift, .control],
+                [.command, .shift, .control]
+            )
+            add(44, [.command, .shift], [.command, .shift])
+            for keyCode: UInt16 in [123, 124, 125, 126] {
+                add(keyCode, [.command], [.command])
+                add(
+                    keyCode,
+                    [.command, .shift],
+                    [.command, .shift]
+                )
+                add(
+                    keyCode,
+                    [.command, .shift, .option],
+                    [.command, .shift, .option]
+                )
+            }
+            for keyCode: UInt16 in [123, 124] {
+                add(
+                    keyCode,
+                    [.command, .control],
+                    [.command, .control]
+                )
+                add(
+                    keyCode,
+                    [.command, .option],
+                    [.command, .option]
+                )
+            }
             for keyCode in digitKeyCodes {
                 add(keyCode, [.command], [.command])
                 add(
                     keyCode,
                     [.command, .shift],
                     [.command, .shift]
+                )
+                add(
+                    keyCode,
+                    [.command, .shift, .option],
+                    [.command, .shift, .option]
                 )
             }
         case .passthrough:
