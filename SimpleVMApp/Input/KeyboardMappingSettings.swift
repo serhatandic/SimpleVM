@@ -187,6 +187,7 @@ final class KeyboardMappingSettings {
                 ("⇧⌘F", "Super+Shift+F · Files"),
                 ("⇧⌘N", "Super+Shift+N · Editor"),
                 ("⌘Space", "Super+Space"),
+                ("⌘J", "Super+J · Toggle split"),
                 ("⌘Tab", "Alt+Tab"),
                 ("⇧⌘Tab", "Alt+Shift+Tab"),
                 ("⌘Arrow", "Super+Arrow · Focus"),
@@ -299,6 +300,7 @@ final class KeyboardMappingSettings {
             add(36, [.command, .option], [.command, .option])
             add(36, [.command, .control], [.command, .control])
             add(49, [.command], [.command])
+            add(38, [.command], [.command])
             add(48, [.command], [.option])
             add(48, [.command, .shift], [.option, .shift])
             add(3, [.command, .control], [.command])

@@ -4,6 +4,7 @@ import AppKit
 
 @MainActor
 final class ImmersiveInputCapture {
+    private static var requestedAccessibilityPrompt = false
     private static let gestureEventType = CGEventType(rawValue: 29)!
     private static let dockControlEventType = CGEventType(rawValue: 30)!
     private static let eventTypeField = CGEventField(rawValue: 55)!
@@ -46,6 +47,7 @@ final class ImmersiveInputCapture {
 
     @discardableResult
     static func requestAccessibilityAccess() -> Bool {
+        requestedAccessibilityPrompt = true
         let options = [
             "AXTrustedCheckOptionPrompt": true
         ] as CFDictionary
@@ -54,7 +56,12 @@ final class ImmersiveInputCapture {
 
     func start() -> Bool {
         guard tap == nil else { return true }
-        guard Self.requestAccessibilityAccess() else { return false }
+        if !Self.hasAccessibilityAccess {
+            guard !Self.requestedAccessibilityPrompt,
+                  Self.requestAccessibilityAccess() else {
+                return false
+            }
+        }
 
         let keyboardMask =
             CGEventMask(1) << CGEventType.keyDown.rawValue

@@ -519,6 +519,11 @@ final class FoundationTests: XCTestCase {
                 UInt16(18),
                 NSEvent.ModifierFlags([.command, .shift, .option]),
                 NSEvent.ModifierFlags([.command, .shift, .option])
+            ),
+            (
+                UInt16(38),
+                NSEvent.ModifierFlags([.command]),
+                NSEvent.ModifierFlags([.command])
             )
         ] {
             XCTAssertEqual(

@@ -7,7 +7,7 @@ GIT_SAFE_ENV := GIT_CONFIG_COUNT=2 GIT_CONFIG_KEY_0=safe.bareRepository GIT_CONF
 PROVISIONING_HELPER := $(shell $(GIT_SAFE_ENV) swift build --package-path Tools/ProvisioningHelper --show-bin-path -c release)/SimpleVMProvisioningHelper
 DEVELOPMENT_SIGN_IDENTITY := $(shell security find-identity -v -p codesigning | awk '/Apple Development/{print $$2; exit}')
 SIGN_IDENTITY := $(if $(DEVELOPMENT_SIGN_IDENTITY),$(DEVELOPMENT_SIGN_IDENTITY),-)
-XCODE_TEST_SIGNING := CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=$(SIGN_IDENTITY)
+XCODE_SIGNING := CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=$(SIGN_IDENTITY)
 TEST_DESTINATION := platform=macOS,arch=arm64
 
 .PHONY: project build test app-test ui-test run clean
@@ -21,6 +21,7 @@ build: project
 		-scheme "$(SCHEME)" \
 		-configuration Debug \
 		-derivedDataPath "$(DERIVED_DATA)" \
+		$(XCODE_SIGNING) \
 		build
 	$(GIT_SAFE_ENV) swift build --package-path Tools/ProvisioningHelper -c release
 	mkdir -p "$(APP)/Contents/Helpers"
@@ -40,6 +41,7 @@ test: project
 		-scheme "$(SCHEME)" \
 		-configuration Debug \
 		-derivedDataPath "$(DERIVED_DATA)" \
+		$(XCODE_SIGNING) \
 		SWIFT_TREAT_WARNINGS_AS_ERRORS=YES \
 		build
 
@@ -51,7 +53,7 @@ app-test: project
 		-derivedDataPath "$(TEST_DERIVED_DATA)" \
 		-destination "$(TEST_DESTINATION)" \
 		-parallel-testing-enabled NO \
-		$(XCODE_TEST_SIGNING) \
+		$(XCODE_SIGNING) \
 		-only-testing:SimpleVMAppTests \
 		test
 
@@ -63,7 +65,7 @@ ui-test: project
 		-derivedDataPath "$(TEST_DERIVED_DATA)" \
 		-destination "$(TEST_DESTINATION)" \
 		-parallel-testing-enabled NO \
-		$(XCODE_TEST_SIGNING) \
+		$(XCODE_SIGNING) \
 		-only-testing:SimpleVMUITests \
 		test
 

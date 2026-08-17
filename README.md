@@ -85,10 +85,13 @@ make run
 `make build` also builds and embeds the separately signed rootfs/OCI
 provisioning helper.
 
-The generated project uses portable ad-hoc signing by default. If an Apple
-Development identity is available, `make build` uses it when re-signing the
-app and helper. A stable development identity prevents macOS from treating
-each rebuild as a new app when granting Accessibility permission.
+Every `make` target automatically uses the first available Apple Development
+identity so Accessibility permission survives rebuilds, and falls back to
+ad-hoc signing when no identity exists. The checked-in Xcode project and CI use
+portable ad-hoc signing by default. If you run directly from Xcode, select an
+Apple Development identity first to keep Accessibility trust stable. After
+switching from an ad-hoc build to a development-signed build, macOS may require
+one final approval for the new stable identity.
 
 ## Create a machine
 
@@ -164,6 +167,7 @@ The profile provides these host-friendly bindings:
 | `Shift+Command+F` | `Super+Shift+F` | Open file manager |
 | `Shift+Command+N` | `Super+Shift+N` | Open editor |
 | `Command+Space` | `Super+Space` | Open launcher |
+| `Command+J` | `Super+J` | Toggle tiling orientation |
 | `Command+Tab` | `Alt+Tab` | Focus next window |
 | `Shift+Command+Tab` | `Alt+Shift+Tab` | Focus previous window |
 | `Command+Arrow` | `Super+Arrow` | Focus in a direction |
