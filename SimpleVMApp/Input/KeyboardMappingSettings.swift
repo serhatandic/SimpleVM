@@ -281,7 +281,12 @@ final class KeyboardMappingSettings {
 
         switch preset {
         case .macOS:
-            add(12, [.command], [.option], guestKeyCode: 118)
+            add(
+                12,
+                [.command],
+                [.option, .function],
+                guestKeyCode: 118
+            )
             add(48, [.command], [.option])
             add(48, [.command, .shift], [.option, .shift])
             add(3, [.command, .control], [], guestKeyCode: 103)

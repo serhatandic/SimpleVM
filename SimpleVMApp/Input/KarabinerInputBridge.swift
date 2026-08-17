@@ -233,6 +233,9 @@ enum KarabinerInputBridge {
         if modifiers.contains(.shift) {
             result.append(sideSpecific ? "left_shift" : "shift")
         }
+        if modifiers.contains(.function) {
+            result.append("fn")
+        }
         return result
     }
 

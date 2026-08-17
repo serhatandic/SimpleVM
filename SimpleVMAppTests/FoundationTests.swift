@@ -629,7 +629,10 @@ final class FoundationTests: XCTestCase {
 
         let quit = try XCTUnwrap(output(for: "q", modifiers: ["command"]))
         XCTAssertEqual(quit["key_code"] as? String, "f4")
-        XCTAssertEqual(quit["modifiers"] as? [String], ["left_option"])
+        XCTAssertEqual(
+            quit["modifiers"] as? [String],
+            ["left_option", "fn"]
+        )
 
         let switcher = try XCTUnwrap(
             output(for: "tab", modifiers: ["command"])
