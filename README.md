@@ -1,12 +1,12 @@
 # SimpleVM
 
-<div align="center">
-
-<!-- Replace this comment and spacer with the product image. -->
-
-<br><br><br><br><br><br>
-
-</div>
+<p align="center">
+  <img
+    src="docs/images/simplevm-omarchy-workspace.jpg"
+    alt="SimpleVM running a tiled Omarchy workspace with btop and Files"
+    width="100%"
+  >
+</p>
 
 [![CI](https://github.com/serhatandic/SimpleVM/actions/workflows/ci.yml/badge.svg)](https://github.com/serhatandic/SimpleVM/actions/workflows/ci.yml)
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)](https://www.apple.com/macos/)
