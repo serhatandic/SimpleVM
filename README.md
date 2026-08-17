@@ -138,41 +138,24 @@ Karabiner-Elements rule for reliable virtual-HID modifier delivery. The rule is
 active only while SimpleVM immersion is active. SimpleVM does not need
 Karabiner-Elements for QEMU guests.
 
-### Hyprland and Karabiner-Elements
+### Hyprland keyboard workflow
 
-Use the **macOS-style Hyprland** keyboard profile for Omarchy and other
-Hyprland guests. The setup depends on the VM backend:
+For Omarchy and other Hyprland guests:
 
-- **QEMU / x86_64:** SimpleVM sends mapped key events directly through SPICE.
-  Karabiner-Elements is not involved.
-- **Apple Virtualization / ARM64:** Karabiner-Elements provides the virtual-HID
-  modifiers that `VZVirtualMachineView` cannot reliably receive from synthetic
-  AppKit events.
+1. Open **SimpleVM > Settings**.
+2. Select the **macOS-style Hyprland** keyboard profile.
+3. Confirm **System input capture** shows `Ready`. If it does not, use
+   **Open Accessibility Settings** and enable SimpleVM.
+4. Start the guest and choose **Enter Immersion**. System-level shortcuts and
+   horizontal workspace swipes are now routed to Hyprland.
+5. Exit at any time with `Control+Option+Command+Escape`.
 
-For an ARM64 Hyprland guest:
+For **QEMU / x86_64 guests such as Omarchy**, that is the complete setup.
+SimpleVM resolves each host chord through its Hyprland profile and sends PC
+keyboard scancodes directly through SPICE. Karabiner-Elements is not part of
+this path, and **VZ Keyboard Mapping** can be ignored.
 
-1. Install and open
-   [Karabiner-Elements](https://karabiner-elements.pqrs.org/):
-
-   ```sh
-   brew install --cask karabiner-elements
-   ```
-
-2. Complete Karabiner-Elements' onboarding prompts. Allow its background
-   services, Accessibility access, and DriverKit extension when macOS asks.
-   On older Karabiner releases, macOS may also request Input Monitoring.
-3. In **System Settings > General > Login Items & Extensions > Driver
-   Extensions**, confirm the Karabiner virtual-HID driver is enabled.
-4. Open **SimpleVM > Settings** and confirm:
-   - **VZ Keyboard Mapping:** `Virtual HID ready`
-   - **System input capture:** `Ready`
-   - **Keyboard profile:** `macOS-style Hyprland`
-5. Start the guest and choose **Enter Immersion**. SimpleVM creates or updates
-   the `SimpleVM Immersion Mappings` rule and activates it only for the
-   frontmost `com.simplevm.app` session.
-6. Exit at any time with `Control+Option+Command+Escape`.
-
-The Hyprland profile provides these host-friendly bindings:
+The profile provides these host-friendly bindings:
 
 | macOS input | Guest input | Hyprland action |
 | --- | --- | --- |
@@ -189,15 +172,37 @@ The Hyprland profile provides these host-friendly bindings:
 | `Command+1...0` | `Super+1...0` | Switch workspace |
 | Horizontal workspace swipe | Numbered workspace chord | Previous or next workspace |
 
-Do not add a second set of manual Karabiner rules for these shortcuts.
-Duplicate mappings can cause double key presses or stuck modifiers. SimpleVM
-backs up `~/.config/karabiner/karabiner.json` before replacing its own scoped
-rule.
+#### Additional setup for Apple Virtualization
 
-If **Virtual HID ready** does not appear, open Karabiner-Elements once, finish
-its permission prompts, verify that `Karabiner DriverKit VirtualHIDKeyboard`
-appears in its connected devices, then relaunch SimpleVM. If mappings change,
-exit and re-enter immersion so SimpleVM can regenerate the active profile.
+ARM64 Hyprland guests using Apple Virtualization also need
+[Karabiner-Elements](https://karabiner-elements.pqrs.org/). Its virtual-HID
+keyboard delivers modifiers that `VZVirtualMachineView` does not reliably
+accept from synthetic AppKit events.
+
+1. Install and open Karabiner-Elements:
+
+   ```sh
+   brew install --cask karabiner-elements
+   ```
+
+2. Complete its onboarding prompts. Allow its background services,
+   Accessibility access, and DriverKit extension when macOS asks. Karabiner
+   15.9 or earlier may also request Input Monitoring.
+3. In **System Settings > General > Login Items & Extensions > Driver
+   Extensions**, confirm the Karabiner virtual-HID driver is enabled.
+4. Relaunch SimpleVM and confirm **VZ Keyboard Mapping** shows
+   `Virtual HID ready`.
+5. Enter immersion again. SimpleVM creates or updates its app-scoped
+   `SimpleVM Immersion Mappings` rule and activates it only for the frontmost
+   `com.simplevm.app` session.
+
+Do not add duplicate manual Karabiner rules for the same shortcuts. SimpleVM
+backs up `~/.config/karabiner/karabiner.json` before replacing its own scoped
+rule, and duplicate mappings can cause repeated keys or stuck modifiers.
+
+If **Virtual HID ready** does not appear, verify that
+`Karabiner DriverKit VirtualHIDKeyboard` appears in Karabiner-Elements'
+connected devices, then relaunch SimpleVM.
 See Karabiner-Elements'
 [required macOS settings](https://karabiner-elements.pqrs.org/docs/manual/misc/required-macos-settings/)
 for version-specific permission screens.
