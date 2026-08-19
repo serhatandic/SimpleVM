@@ -109,6 +109,43 @@ final class AppModel {
                 }
                 return image
             }
+            if ProcessInfo.processInfo.environment[
+                "SIMPLEVM_UI_TEST_GUEST_TOOLS"
+            ] == "1", machines.isEmpty {
+                let machineID = UUID()
+                let files = try await machineStore.createFiles(
+                    machineID: machineID,
+                    diskCapacityBytes: 1 * 1_024 * 1_024,
+                    backend: .appleVirtualization
+                )
+                let shareURL = layout.rootURL.appending(
+                    path: "GuestToolsTestShare",
+                    directoryHint: .isDirectory
+                )
+                try FileManager.default.createDirectory(
+                    at: shareURL,
+                    withIntermediateDirectories: true
+                )
+                machines = [
+                    Machine(
+                        id: machineID,
+                        name: "Guest Tools Fixture",
+                        spec: MachineSpec(
+                            cpuCount: 2,
+                            memorySizeBytes: 2 * 1_024 * 1_024 * 1_024,
+                            diskSizeBytes: files.0.capacityBytes,
+                            architecture: .arm64,
+                            sharedDirectoryPath: shareURL.path
+                        ),
+                        sourceImageID: UUID(),
+                        disk: files.0,
+                        provisioningState: .ready,
+                        bootMedia: .systemDisk,
+                        backend: .appleVirtualization,
+                        backendState: files.1
+                    )
+                ]
+            }
             for index in machines.indices
             where machines[index].provisioningState.isInterrupted {
                 let sourceImage = images.first {
@@ -665,7 +702,9 @@ final class AppModel {
                         backendStateURL: files.backendStateURL
                     )
                 await appleRuntime(for: machine).start(
-                    configuration: configuration
+                    configuration: configuration,
+                    sharedDirectoryConfigured:
+                        machine.spec.sharedDirectoryPath != nil
                 )
             case .qemu:
                 await qemuRuntime(for: machine).start(
@@ -683,7 +722,7 @@ final class AppModel {
     func requestStop(_ machine: Machine) async {
         switch machine.backend {
         case .appleVirtualization:
-            appleRuntime(for: machine).requestStop()
+            await appleRuntime(for: machine).requestStop()
         case .qemu:
             await qemuRuntime(for: machine).stop()
         }
@@ -695,6 +734,15 @@ final class AppModel {
             await appleRuntime(for: machine).forceStop()
         case .qemu:
             await qemuRuntime(for: machine).forceStop()
+        }
+    }
+
+    func requestReboot(_ machine: Machine) async {
+        switch machine.backend {
+        case .appleVirtualization:
+            await appleRuntime(for: machine).requestReboot()
+        case .qemu:
+            await qemuRuntime(for: machine).requestReboot()
         }
     }
 
@@ -936,6 +984,7 @@ final class AppModel {
         guard let layout else {
             throw AppModelError.notInitialized
         }
+
         guard exportingMachineIDs.insert(machine.id).inserted else {
             throw AppModelError.exportInProgress
         }
@@ -962,6 +1011,26 @@ final class AppModel {
             to: destinationURL,
             protectedRootURL: layout.rootURL
         )
+    }
+
+    func exportGuestTools(to destinationURL: URL) async throws {
+        try await Task.detached(priority: .userInitiated) {
+            try GuestToolsBundleExporter().export(to: destinationURL)
+        }.value
+    }
+
+    func copyGuestToolsToSharedDirectory(
+        for machine: Machine
+    ) async throws -> URL {
+        guard machine.backend == .appleVirtualization,
+              let path = machine.spec.sharedDirectoryPath else {
+            throw GuestToolsBundleError.destinationUnavailable
+        }
+        return try await Task.detached(priority: .userInitiated) {
+            try GuestToolsBundleExporter().copyToSharedDirectory(
+                URL(filePath: path, directoryHint: .isDirectory)
+            )
+        }.value
     }
 
     func dismissError() {

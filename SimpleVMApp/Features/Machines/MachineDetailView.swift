@@ -9,6 +9,8 @@ struct MachineDetailView: View {
     let immersion: ImmersionController
 
     @State private var confirmsDeletion = false
+    @State private var showsGuestTools = false
+    @State private var deliveredToolsMessage: String?
 
     private var runtimeState: MachineRuntimeState {
         model.runtimeState(for: machine)
@@ -123,6 +125,9 @@ struct MachineDetailView: View {
                             )
                         }
                     }
+                    Button("Guest Tools Setup...") {
+                        showsGuestTools = true
+                    }
                     if machine.hasInstallerAttached {
                         Button("Eject Installer") {
                             Task {
@@ -212,6 +217,25 @@ struct MachineDetailView: View {
             }
         } message: {
             Text("Its virtual disk and machine state will be permanently removed.")
+        }
+        .popover(isPresented: $showsGuestTools) {
+            GuestToolsPanel(
+                machine: machine,
+                runtimeState: runtimeState,
+                state: guestTools.state,
+                notice: guestTools.notice,
+                deliveredMessage: deliveredToolsMessage,
+                retry: {
+                    guestTools.retry()
+                },
+                exportBundle: exportGuestTools,
+                copyToShare: copyGuestToolsToShare,
+                reboot: {
+                    Task {
+                        await model.requestReboot(machine)
+                    }
+                }
+            )
         }
     }
 
@@ -349,6 +373,19 @@ struct MachineDetailView: View {
                 )
             )
             StatusValue(title: "Profile", value: inputProfileStatus)
+            Button {
+                showsGuestTools.toggle()
+            } label: {
+                StatusValue(
+                    title: "Guest Tools",
+                    value: guestToolsStatus
+                )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(
+                "Guest Tools status: \(guestToolsStatus)"
+            )
+            .accessibilityIdentifier("guestTools.status")
             StatusValue(title: "Network", value: "Shared NAT")
             Spacer()
         }
@@ -359,7 +396,7 @@ struct MachineDetailView: View {
 
     private func enterImmersion() {
         KeyboardMappingSettings.shared.activate(
-            profile: machine.spec.inputProfile,
+            profile: resolvedInputProfile,
             forMachineNamed: machine.name
         )
         switch machine.backend {
@@ -397,7 +434,18 @@ struct MachineDetailView: View {
     }
 
     private var resolvedInputProfile: MachineInputProfile {
-        machine.spec.inputProfile.resolved(forMachineNamed: machine.name)
+        switch machine.backend {
+        case .appleVirtualization:
+            model.appleRuntime(for: machine).guestTools.resolvedInputProfile(
+                configuredProfile: machine.spec.inputProfile,
+                machineName: machine.name
+            )
+        case .qemu:
+            model.qemuRuntime(for: machine).guestTools.resolvedInputProfile(
+                configuredProfile: machine.spec.inputProfile,
+                machineName: machine.name
+            )
+        }
     }
 
     private var inputProfileStatus: String {
@@ -405,6 +453,294 @@ struct MachineDetailView: View {
             return "Automatic (\(resolvedInputProfile.displayName))"
         }
         return resolvedInputProfile.displayName
+    }
+
+    private var guestTools: GuestToolsCoordinator {
+        switch machine.backend {
+        case .appleVirtualization:
+            model.appleRuntime(for: machine).guestTools
+        case .qemu:
+            model.qemuRuntime(for: machine).guestTools
+        }
+    }
+
+    private var guestToolsStatus: String {
+        switch guestTools.state {
+        case .stopped:
+            "Stopped"
+        case .checking:
+            "Checking..."
+        case .notConnected:
+            "Not connected"
+        case .connected:
+            "Connected"
+        case .incompatible:
+            "Incompatible"
+        case .failed:
+            "Error"
+        }
+    }
+
+    private func exportGuestTools() {
+        guard let destinationURL = FilePicker.chooseSaveFile(
+            suggestedName: GuestToolsBundleExporter.archiveName,
+            allowedContentType:
+                UTType(filenameExtension: "gz") ?? .archive
+        ) else {
+            return
+        }
+        Task {
+            do {
+                try await model.exportGuestTools(to: destinationURL)
+                deliveredToolsMessage =
+                    "Exported to \(destinationURL.lastPathComponent). Move the archive into the guest, then run the shown command from its folder."
+            } catch {
+                model.present(error: error)
+            }
+        }
+    }
+
+    private func copyGuestToolsToShare() {
+        Task {
+            do {
+                let destinationURL =
+                    try await model.copyGuestToolsToSharedDirectory(
+                        for: machine
+                    )
+                deliveredToolsMessage =
+                    "Copied \(destinationURL.lastPathComponent) to the configured shared folder. Delivery does not install or start Guest Tools."
+            } catch {
+                model.present(error: error)
+            }
+        }
+    }
+
+    private struct GuestToolsPanel: View {
+        let machine: Machine
+        let runtimeState: MachineRuntimeState
+        let state: GuestToolsConnectionState
+        let notice: String?
+        let deliveredMessage: String?
+        let retry: () -> Void
+        let exportBundle: () -> Void
+        let copyToShare: () -> Void
+        let reboot: () -> Void
+
+        private var status: GuestAgentStatus? {
+            state.status
+        }
+
+        private var installCommand: String {
+            machine.hasConfiguredVirtioFSShare
+                ? GuestToolsBundleExporter.guestInstallCommand
+                : GuestToolsBundleExporter.manualInstallCommand
+        }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack {
+                    Image(systemName: statusSymbol)
+                        .foregroundStyle(statusColor)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("SimpleVM Guest Tools")
+                            .font(.headline)
+                            .accessibilityIdentifier("guestTools.panel")
+                        Text(statusTitle)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if runtimeState == .running,
+                       status == nil {
+                        Button("Retry Connection", action: retry)
+                            .accessibilityIdentifier("guestTools.retry")
+                    }
+                }
+
+                if let status {
+                    connectedDetails(status)
+                } else if let message = stateMessage {
+                    Text(message)
+                        .font(.callout)
+                        .foregroundStyle(
+                            isErrorState ? Color.orange : Color.secondary
+                        )
+                }
+                if let notice {
+                    Label(notice, systemImage: "exclamationmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier("guestTools.notice")
+                }
+
+                Divider()
+                Text("Setup and updates")
+                    .font(.subheadline.weight(.semibold))
+                Text(
+                    "SimpleVM can deliver the bundle, but you run the command in the guest. It never supplies a password or modifies the guest disk."
+                )
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                HStack {
+                    if machine.hasConfiguredVirtioFSShare {
+                        Button("Copy to Shared Folder", action: copyToShare)
+                            .accessibilityIdentifier("guestTools.copyToShare")
+                    }
+                    Button("Export Tools Bundle...", action: exportBundle)
+                        .accessibilityIdentifier("guestTools.export")
+                }
+                if let deliveredMessage {
+                    Label(deliveredMessage, systemImage: "checkmark.circle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .accessibilityIdentifier("guestTools.deliveryStatus")
+                }
+
+                Text(
+                    machine.hasConfiguredVirtioFSShare
+                        ? "In the guest, run:"
+                        : "After moving the archive into the guest, run:"
+                )
+                .font(.caption.weight(.medium))
+                HStack(alignment: .top) {
+                    Text(installCommand)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("guestTools.installCommand")
+                    Button {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(
+                            installCommand,
+                            forType: .string
+                        )
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.borderless)
+                    .help("Copy guest command")
+                    .accessibilityLabel("Copy guest command")
+                    .accessibilityIdentifier("guestTools.copyCommand")
+                }
+                .padding(10)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            }
+            .padding(18)
+            .frame(width: 440)
+        }
+
+        @ViewBuilder
+        private func connectedDetails(_ status: GuestAgentStatus) -> some View {
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 5) {
+                detailRow("Agent", status.agentVersion)
+                detailRow(
+                    "System",
+                    "\(status.distroID) \(status.distroVersion)"
+                )
+                detailRow(
+                    "Session",
+                    "\(status.desktopEnvironment.rawValue) / \(status.sessionType.rawValue)"
+                )
+                detailRow(
+                    "Shared folder",
+                    status.sharedMountStatus.state.rawValue
+                )
+            }
+            Text("Capabilities")
+                .font(.subheadline.weight(.semibold))
+            ForEach(GuestAgentCapability.allCases, id: \.self) { capability in
+                let enabled = status.capabilities.contains(capability)
+                Label(
+                    capability.displayName.capitalized,
+                    systemImage: enabled ? "checkmark.circle.fill" : "minus.circle"
+                )
+                .font(.caption)
+                .foregroundStyle(enabled ? .primary : .secondary)
+                .accessibilityIdentifier(
+                    "guestTools.capability.\(capability.rawValue)"
+                )
+            }
+            if status.capabilities.contains(.gracefulReboot) {
+                Button("Restart Guest", action: reboot)
+                    .accessibilityIdentifier("guestTools.reboot")
+            }
+        }
+
+        private func detailRow(_ title: String, _ value: String) -> some View {
+            GridRow {
+                Text(title)
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .textSelection(.enabled)
+            }
+            .font(.caption)
+        }
+
+        private var statusTitle: String {
+            switch state {
+            case .stopped:
+                "VM stopped"
+            case .checking:
+                "Checking for Guest Tools..."
+            case .notConnected:
+                "Not connected"
+            case .connected:
+                "Connected"
+            case .incompatible:
+                "Incompatible version"
+            case .failed:
+                "Connection error"
+            }
+        }
+
+        private var stateMessage: String? {
+            switch state {
+            case .stopped:
+                "Start the VM to check whether Guest Tools are installed."
+            case .checking:
+                "Waiting for the guest agent. The VM remains usable without it."
+            case .notConnected(let message):
+                message
+                    ?? "Guest Tools may not be installed or its service may not be running."
+            case .incompatible(let message), .failed(let message):
+                message
+            case .connected:
+                nil
+            }
+        }
+
+        private var isErrorState: Bool {
+            switch state {
+            case .incompatible, .failed:
+                true
+            case .stopped, .checking, .notConnected, .connected:
+                false
+            }
+        }
+
+        private var statusSymbol: String {
+            switch state {
+            case .connected:
+                "checkmark.circle.fill"
+            case .checking:
+                "arrow.triangle.2.circlepath"
+            case .incompatible, .failed:
+                "exclamationmark.triangle.fill"
+            case .stopped, .notConnected:
+                "wrench.and.screwdriver"
+            }
+        }
+
+        private var statusColor: Color {
+            switch state {
+            case .connected:
+                .green
+            case .incompatible, .failed:
+                .orange
+            case .stopped, .checking, .notConnected:
+                .secondary
+            }
+        }
     }
 
     private func exportDisk() {
@@ -500,6 +836,11 @@ private extension Machine {
             return true
         }
         return false
+    }
+
+    var hasConfiguredVirtioFSShare: Bool {
+        backend == .appleVirtualization
+            && spec.sharedDirectoryPath != nil
     }
 }
 

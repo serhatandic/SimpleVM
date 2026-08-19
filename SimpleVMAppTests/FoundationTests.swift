@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Security
 import SimpleVMCore
 import Virtualization
@@ -1123,6 +1124,366 @@ final class FoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testGuestToolsDetectionResolvesOnlyAutomaticProfile() async throws {
+        let coordinator = GuestToolsCoordinator()
+        let unmounted = guestToolsStatus(
+            mountState: .unmounted,
+            capabilities: [.mountSharedDirectory, .displayResize]
+        )
+        let mounted = guestToolsStatus(
+            mountState: .mounted,
+            capabilities: [.mountSharedDirectory, .displayResize]
+        )
+        var statusRequests = 0
+        var mountRequests = 0
+        coordinator.start(sharedDirectoryConfigured: true) { request in
+            switch request {
+            case .status:
+                statusRequests += 1
+                return .status(statusRequests == 1 ? unmounted : mounted)
+            case .mountSharedDirectory:
+                mountRequests += 1
+                return .accepted
+            default:
+                return .failure(
+                    GuestAgentFailure(
+                        code: "unexpected",
+                        message: "Unexpected test request."
+                    )
+                )
+            }
+        }
+        for _ in 0..<100 where coordinator.state.status == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(mountRequests, 1)
+        XCTAssertEqual(coordinator.state.status?.sharedMountStatus.state, .mounted)
+        XCTAssertEqual(
+            coordinator.resolvedInputProfile(
+                configuredProfile: .automatic,
+                machineName: "Generic Linux"
+            ),
+            .macOSHyprland
+        )
+        XCTAssertEqual(
+            coordinator.resolvedInputProfile(
+                configuredProfile: .macOSGNOME,
+                machineName: "Omarchy"
+            ),
+            .macOSGNOME
+        )
+        coordinator.stop()
+    }
+
+    @MainActor
+    func testGuestToolsMountFailurePreservesConnection() async throws {
+        let coordinator = GuestToolsCoordinator()
+        let status = guestToolsStatus(
+            mountState: .unmounted,
+            capabilities: [.mountSharedDirectory, .gracefulShutdown]
+        )
+        coordinator.start(sharedDirectoryConfigured: true) { request in
+            switch request {
+            case .status:
+                return .status(status)
+            case .mountSharedDirectory:
+                return .failure(
+                    GuestAgentFailure(
+                        code: "mountFailed",
+                        message: "fixed mount point is occupied"
+                    )
+                )
+            default:
+                return .failure(
+                    GuestAgentFailure(
+                        code: "unexpected",
+                        message: "Unexpected test request."
+                    )
+                )
+            }
+        }
+        for _ in 0..<100 where coordinator.state.status == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(coordinator.state.status, status)
+        XCTAssertTrue(coordinator.supports(.gracefulShutdown))
+        XCTAssertTrue(
+            coordinator.notice?.contains("could not be mounted") == true
+        )
+        coordinator.stop()
+    }
+
+    @MainActor
+    func testGuestToolsMountTimeoutPreservesConnection() async throws {
+        let coordinator = GuestToolsCoordinator()
+        let status = guestToolsStatus(
+            mountState: .unmounted,
+            capabilities: [.mountSharedDirectory, .gracefulReboot]
+        )
+        coordinator.start(sharedDirectoryConfigured: true) { request in
+            switch request {
+            case .status:
+                return .status(status)
+            case .mountSharedDirectory:
+                throw GuestAgentTransportError.timedOut
+            default:
+                return .failure(
+                    GuestAgentFailure(
+                        code: "unexpected",
+                        message: "Unexpected test request."
+                    )
+                )
+            }
+        }
+        for _ in 0..<100 where coordinator.state.status == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(coordinator.state.status, status)
+        XCTAssertTrue(coordinator.supports(.gracefulReboot))
+        XCTAssertTrue(
+            coordinator.notice?.contains("could not be mounted") == true
+        )
+        coordinator.stop()
+    }
+
+    func testClipboardLoopGuardSuppressesEchoes() {
+        var guardState = ClipboardLoopGuard()
+        XCTAssertTrue(guardState.shouldSendToGuest("host"))
+        XCTAssertFalse(guardState.shouldApplyFromGuest("host"))
+        XCTAssertTrue(guardState.shouldApplyFromGuest("guest"))
+        XCTAssertFalse(guardState.shouldAnnounceHostChange("guest"))
+        XCTAssertTrue(guardState.shouldAnnounceHostChange("new host"))
+        XCTAssertTrue(guardState.shouldSendToGuest("guest"))
+        XCTAssertFalse(guardState.shouldApplyFromGuest("guest"))
+    }
+
+    func testClipboardLoopGuardAllowsGuestTextAfterDistinctHostWrite() {
+        var guardState = ClipboardLoopGuard()
+        XCTAssertTrue(guardState.shouldApplyFromGuest("guest"))
+        XCTAssertTrue(guardState.canSendToGuest("host"))
+        guardState.markSentToGuest("host")
+        XCTAssertTrue(guardState.shouldApplyFromGuest("guest"))
+    }
+
+    func testAgentClipboardRoutingRequiresBothWaylandCapabilities() {
+        let partial = guestToolsStatus(
+            capabilities: [.clipboardRead],
+            sessionType: .wayland
+        )
+        let complete = guestToolsStatus(
+            capabilities: [.clipboardRead, .clipboardWrite],
+            sessionType: .wayland
+        )
+        let x11 = guestToolsStatus(
+            capabilities: [.clipboardRead, .clipboardWrite],
+            sessionType: .x11
+        )
+
+        XCTAssertFalse(partial.supportsAgentClipboardTransport)
+        XCTAssertTrue(complete.supportsAgentClipboardTransport)
+        XCTAssertFalse(x11.supportsAgentClipboardTransport)
+    }
+
+    func testGuestToolsBundleExportsAndAtomicallyReplacesArchive() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appending(
+            path: "GuestTools",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: sourceURL,
+            withIntermediateDirectories: true
+        )
+        try Data("#!/bin/sh\n".utf8).write(
+            to: sourceURL.appending(path: "install.sh")
+        )
+        let shareURL = directory.appending(
+            path: "share",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: shareURL,
+            withIntermediateDirectories: true
+        )
+        let exporter = GuestToolsBundleExporter(sourceURL: sourceURL)
+
+        let archiveURL = try exporter.copyToSharedDirectory(shareURL)
+        let firstArchive = try Data(contentsOf: archiveURL)
+        XCTAssertFalse(firstArchive.isEmpty)
+        try Data("#!/bin/sh\necho updated\n".utf8).write(
+            to: sourceURL.appending(path: "install.sh")
+        )
+        XCTAssertEqual(
+            try exporter.copyToSharedDirectory(shareURL),
+            archiveURL
+        )
+        let updatedArchive = try Data(contentsOf: archiveURL)
+        XCTAssertNotEqual(updatedArchive, firstArchive)
+        XCTAssertEqual(
+            try exporter.copyToSharedDirectory(shareURL),
+            archiveURL
+        )
+        XCTAssertEqual(try Data(contentsOf: archiveURL), updatedArchive)
+
+        let list = Process()
+        list.executableURL = URL(filePath: "/usr/bin/tar")
+        list.arguments = ["-tzf", archiveURL.path]
+        let output = Pipe()
+        list.standardOutput = output
+        try list.run()
+        list.waitUntilExit()
+        XCTAssertEqual(list.terminationStatus, 0)
+        let contents = String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )
+        XCTAssertTrue(contents?.contains("GuestTools/install.sh") == true)
+    }
+
+    func testGuestAgentSocketTransportRoundTripAndTimeout() async throws {
+        var descriptors: [Int32] = [0, 0]
+        XCTAssertEqual(
+            socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors),
+            0
+        )
+        let client = descriptors[0]
+        let server = descriptors[1]
+        let status = guestToolsStatus(
+            mountState: .mounted,
+            capabilities: [.gracefulShutdown]
+        )
+        let serverTask = Task.detached {
+            defer { Darwin.close(server) }
+            let handle = FileHandle(
+                fileDescriptor: server,
+                closeOnDealloc: false
+            )
+            let header = try handle.read(upToCount: 4) ?? Data()
+            let length = header.reduce(UInt32(0)) {
+                ($0 << 8) | UInt32($1)
+            }
+            let payload = try handle.read(upToCount: Int(length)) ?? Data()
+            var requestFrame = header
+            requestFrame.append(payload)
+            let request = try GuestAgentFrameCodec.decode(
+                GuestAgentRequestEnvelope.self,
+                from: requestFrame
+            )
+            let response = try GuestAgentFrameCodec.encode(
+                GuestAgentResponseEnvelope(
+                    requestID: request.requestID,
+                    response: .status(status)
+                )
+            )
+            try handle.write(contentsOf: response.prefix(2))
+            try handle.write(contentsOf: response.dropFirst(2))
+        }
+        let response = try await GuestAgentSocketTransport.request(
+            .status,
+            timeout: 1
+        ) {
+            client
+        }
+        guard case .status(let received) = response else {
+            XCTFail("Expected status response.")
+            return
+        }
+        XCTAssertEqual(received.hostname, "guest")
+        _ = try await serverTask.value
+
+        var timeoutDescriptors: [Int32] = [0, 0]
+        XCTAssertEqual(
+            socketpair(AF_UNIX, SOCK_STREAM, 0, &timeoutDescriptors),
+            0
+        )
+        let timeoutClient = timeoutDescriptors[0]
+        let timeoutServer = timeoutDescriptors[1]
+        defer { Darwin.close(timeoutServer) }
+        do {
+            _ = try await GuestAgentSocketTransport.request(
+                .status,
+                timeout: 0.05
+            ) {
+                timeoutClient
+            }
+            XCTFail("Expected a timeout.")
+        } catch GuestAgentTransportError.timedOut {
+            // Expected.
+        }
+    }
+
+    func testGuestAgentSocketTransportRejectsMismatchedIDs() async throws {
+        var descriptors: [Int32] = [0, 0]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+        let client = descriptors[0]
+        let server = descriptors[1]
+        let serverTask = Task.detached {
+            defer { Darwin.close(server) }
+            let handle = FileHandle(
+                fileDescriptor: server,
+                closeOnDealloc: false
+            )
+            let header = try handle.read(upToCount: 4) ?? Data()
+            let length = header.reduce(UInt32(0)) {
+                ($0 << 8) | UInt32($1)
+            }
+            _ = try handle.read(upToCount: Int(length))
+            let response = try GuestAgentFrameCodec.encode(
+                GuestAgentResponseEnvelope(
+                    requestID: "not-the-request-id",
+                    response: .accepted
+                )
+            )
+            try handle.write(contentsOf: response)
+        }
+
+        do {
+            _ = try await GuestAgentSocketTransport.request(
+                .status,
+                timeout: 1
+            ) {
+                client
+            }
+            XCTFail("Expected a mismatched request ID.")
+        } catch GuestAgentProtocolError.mismatchedRequestID {
+            // Expected.
+        }
+        _ = try await serverTask.value
+    }
+
+    func testGuestAgentSocketTransportCancelsPendingRead() async throws {
+        var descriptors: [Int32] = [0, 0]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+        let client = descriptors[0]
+        let server = descriptors[1]
+        defer { Darwin.close(server) }
+        let requestTask = Task {
+            try await GuestAgentSocketTransport.request(
+                .status,
+                timeout: 10
+            ) {
+                client
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        requestTask.cancel()
+        do {
+            _ = try await requestTask.value
+            XCTFail("Expected cancellation.")
+        } catch is CancellationError {
+            // Expected.
+        }
+    }
+
+    @MainActor
     func testRealARM64EFIISOStaysRunningWithDisplayAttached() async throws {
         guard let fixturePath = fixturePath(
             environmentKey: "SIMPLEVM_ARM64_ISO_FIXTURE"
@@ -1303,6 +1664,26 @@ final class FoundationTests: XCTestCase {
             return nil
         }
         return path
+    }
+
+    private func guestToolsStatus(
+        mountState: GuestSharedMountState = .unmounted,
+        capabilities: Set<GuestAgentCapability>,
+        sessionType: GuestSessionType = .wayland
+    ) -> GuestAgentStatus {
+        GuestAgentStatus(
+            protocolVersion: GuestAgentProtocol.currentVersion,
+            agentVersion: "2.0.0",
+            hostname: "guest",
+            ipAddresses: [],
+            operatingSystem: "Linux",
+            distroID: "arch",
+            distroVersion: "rolling",
+            desktopEnvironment: .hyprland,
+            sessionType: sessionType,
+            capabilities: capabilities,
+            sharedMountStatus: GuestSharedMountStatus(state: mountState)
+        )
     }
 
 }

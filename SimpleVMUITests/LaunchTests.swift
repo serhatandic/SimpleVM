@@ -67,4 +67,41 @@ final class LaunchTests: XCTestCase {
         XCTAssertTrue(app.buttons["Open"].waitForExistence(timeout: 3))
         app.typeKey(.escape, modifierFlags: [])
     }
+
+    func testGuestToolsSetupShowsTruthfulDeliveryFlow() {
+        let app = XCUIApplication()
+        let storageRoot = FileManager.default.temporaryDirectory
+            .appending(path: UUID().uuidString)
+        app.launchEnvironment["SIMPLEVM_STORAGE_ROOT"] = storageRoot.path
+        app.launchEnvironment["SIMPLEVM_UI_TEST_GUEST_TOOLS"] = "1"
+        app.launch()
+
+        let machine = app.staticTexts["Guest Tools Fixture"]
+        XCTAssertTrue(machine.waitForExistence(timeout: 5))
+        machine.click()
+
+        let status = app.buttons["guestTools.status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        status.click()
+        XCTAssertTrue(
+            app.staticTexts["guestTools.panel"].waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(app.buttons["guestTools.export"].exists)
+        XCTAssertTrue(app.buttons["guestTools.copyToShare"].exists)
+        XCTAssertTrue(app.staticTexts["guestTools.installCommand"].exists)
+
+        app.buttons["guestTools.copyToShare"].click()
+        XCTAssertTrue(
+            app.staticTexts["guestTools.deliveryStatus"]
+                .waitForExistence(timeout: 5)
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(
+                atPath: storageRoot
+                    .appending(path: "GuestToolsTestShare")
+                    .appending(path: "simplevm-guest-tools.tar.gz")
+                    .path
+            )
+        )
+    }
 }
