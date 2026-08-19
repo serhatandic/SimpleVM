@@ -339,7 +339,8 @@ final class AppModel {
         sharedDirectoryPath: String?,
         rosettaEnabled: Bool = false,
         bootProfileID: String? = nil,
-        portForwards: [PortForward] = []
+        portForwards: [PortForward] = [],
+        inputProfile: MachineInputProfile = .automatic
     ) async throws -> UUID {
         guard let machineStore, let layout else {
             throw AppModelError.notInitialized
@@ -461,7 +462,8 @@ final class AppModel {
                 architecture: image.architecture,
                 sharedDirectoryPath: sharedDirectoryPath,
                 rosettaEnabled: rosettaEnabled,
-                portForwards: portForwards
+                portForwards: portForwards,
+                inputProfile: inputProfile
             ),
             sourceImageID: imageID,
             disk: disk,
@@ -820,6 +822,7 @@ final class AppModel {
             present(error: AppModelError.notInitialized)
             return
         }
+
         guard !exportingMachineIDs.contains(machine.id) else {
             present(error: AppModelError.exportInProgress)
             return
@@ -855,6 +858,28 @@ final class AppModel {
             try await persist()
         } catch {
             try? await machineStore.removeMachine(id: cloneID)
+            present(error: error)
+        }
+    }
+
+    func setInputProfile(
+        _ profile: MachineInputProfile,
+        for machine: Machine
+    ) async {
+        guard let index = machines.firstIndex(where: {
+            $0.id == machine.id
+        }) else {
+            present(error: AppModelError.machineUnavailable)
+            return
+        }
+        let previousProfile = machines[index].spec.inputProfile
+        machines[index].spec.inputProfile = profile
+        do {
+            try await persist()
+        } catch {
+            updateMachine(id: machine.id) {
+                $0.spec.inputProfile = previousProfile
+            }
             present(error: error)
         }
     }

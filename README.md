@@ -145,9 +145,11 @@ Karabiner-Elements for QEMU guests.
 
 For Omarchy and other Hyprland guests:
 
-1. Open **SimpleVM > Settings**.
-2. Select the **macOS-style Hyprland** keyboard profile.
-3. Confirm **System input capture** shows `Ready`. If it does not, use
+1. Open the machine's **•••** actions menu.
+2. Select **macOS-style Hyprland** under **Desktop and Input Profile**. Machines
+   named for Omarchy or Hyprland use this profile automatically unless
+   explicitly overridden.
+3. In **SimpleVM > Settings**, confirm **System input capture** shows `Ready`. If it does not, use
    **Open Accessibility Settings** and enable SimpleVM.
 4. Start the guest and choose **Enter Immersion**. System-level shortcuts and
    horizontal workspace swipes are now routed to Hyprland.

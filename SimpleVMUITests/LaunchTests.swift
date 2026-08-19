@@ -30,6 +30,7 @@ final class LaunchTests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["New Machine"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Source"].exists)
+        XCTAssertTrue(app.staticTexts["Desktop and input profile"].exists)
         XCTAssertTrue(app.buttons["Create"].exists)
     }
 

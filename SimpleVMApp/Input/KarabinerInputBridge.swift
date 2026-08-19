@@ -100,7 +100,7 @@ enum KarabinerInputBridge {
     }
 
     static var generatedRule: [String: Any] {
-        generatedRule(for: .macOS)
+        generatedRule(for: .gnome)
     }
 
     static func generatedRule(

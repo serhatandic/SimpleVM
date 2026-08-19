@@ -78,9 +78,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testMacOSProfileMapsCommandCopyToGuestControlCopy() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
         let chord = settings.chord(
             keyCode: 8,
             modifiers: [.command]
@@ -94,9 +96,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testUnmappedCommandChordUsesGuestSuper() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
         let chord = settings.chord(
             keyCode: 47,
             modifiers: [.command]
@@ -109,15 +113,20 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testWorkspaceSwipeChordsFollowSelectedProfile() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
+        defer { settings.deactivate() }
 
-        settings.preset = .macOS
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
         XCTAssertEqual(
             settings.workspaceChord(direction: .previous),
             GuestChord(keyCode: 116, modifiers: [.command])
         )
-        settings.preset = .hyprland
+        settings.activate(
+            profile: .macOSHyprland,
+            forMachineNamed: "Generic Linux"
+        )
         XCTAssertEqual(
             settings.workspaceChord(direction: .previous),
             GuestChord(keyCode: 48, modifiers: [.command, .shift])
@@ -127,20 +136,21 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testHyprlandWorkspaceSwipeCyclesExplicitWorkspaces() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
         let defaults = UserDefaults.standard
         let previousIndex = defaults.integer(
             forKey: "hyprlandWorkspaceIndex"
         )
         defer {
-            settings.deactivateMachinePreset()
-            settings.preset = previousPreset
+            settings.deactivate()
             defaults.set(
                 previousIndex,
                 forKey: "hyprlandWorkspaceIndex"
             )
         }
-        settings.activatePreset(forMachineNamed: "omarchy")
+        settings.activate(
+            profile: .automatic,
+            forMachineNamed: "omarchy"
+        )
         defaults.set(1, forKey: "hyprlandWorkspaceIndex")
 
         XCTAssertEqual(
@@ -279,9 +289,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testNavigationMappingsIgnoreSystemFunctionFlag() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
         let chord = settings.chord(
             keyCode: 123,
             modifiers: [.command, .function]
@@ -392,9 +404,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testMappedShortcutsEmitModifiersBeforeGuestKeys() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
 
         for (hostKey, expectedKey, expectedModifier, modifierKey) in [
             (UInt16(12), UInt16(118), NSEvent.ModifierFlags.option, UInt16(58)),
@@ -433,9 +447,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testMappedShortcutsResolveToQEMUModifierKeysyms() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
         var events: [GuestKeyEvent] = []
         let router = GuestInputRouter { events.append($0) }
 
@@ -460,13 +476,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testOmarchyAutomaticallyUsesHyprlandMappings() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer {
-            settings.deactivateMachinePreset()
-            settings.preset = previousPreset
-        }
-        settings.preset = .macOS
-        settings.activatePreset(forMachineNamed: "omarchy-4.0.0")
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .automatic,
+            forMachineNamed: "omarchy-4.0.0"
+        )
 
         XCTAssertEqual(
             settings.chord(keyCode: 12, modifiers: [.command]),
@@ -483,11 +497,31 @@ final class FoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testExplicitGNOMEProfileOverridesOmarchyDetection() {
+        let settings = KeyboardMappingSettings.shared
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "omarchy-4.0.0"
+        )
+
+        XCTAssertEqual(
+            settings.chord(keyCode: 12, modifiers: [.command]),
+            GuestChord(
+                keyCode: 118,
+                modifiers: [.option, .function]
+            )
+        )
+    }
+
+    @MainActor
     func testOmarchySystemBindingsReachHyprlandUnchanged() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .hyprland
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSHyprland,
+            forMachineNamed: "Generic Linux"
+        )
 
         for (keyCode, hostModifiers, expectedModifiers) in [
             (
@@ -651,7 +685,7 @@ final class FoundationTests: XCTestCase {
         )
         XCTAssertEqual(
             manipulators.count,
-            KeyboardMappingSettings.mappingEntries(for: .macOS).count
+            KeyboardMappingSettings.mappingEntries(for: .gnome).count
         )
         let hyprlandManipulators = try XCTUnwrap(
             KarabinerInputBridge.generatedRule(for: .hyprland)[
@@ -702,14 +736,55 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testMacOSPointerCommandMapsToGuestControl() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
 
         let modifiers = settings.pointerModifiers(from: [.command])
 
         XCTAssertTrue(modifiers.contains(.control))
         XCTAssertFalse(modifiers.contains(.command))
+    }
+
+    @MainActor
+    func testGNOMEProfileMapsCommandQuitToAltF4() {
+        let settings = KeyboardMappingSettings.shared
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
+
+        XCTAssertEqual(
+            settings.chord(keyCode: 12, modifiers: [.command]),
+            GuestChord(
+                keyCode: 118,
+                modifiers: [.option, .function]
+            )
+        )
+    }
+
+    @MainActor
+    func testLinuxPassthroughLeavesCommandChordUnchanged() {
+        let settings = KeyboardMappingSettings.shared
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .linuxPassthrough,
+            forMachineNamed: "Generic Linux"
+        )
+
+        XCTAssertEqual(
+            settings.chord(
+                keyCode: 12,
+                modifiers: [.command, .shift]
+            ),
+            GuestChord(
+                keyCode: 12,
+                modifiers: [.command, .shift]
+            )
+        )
     }
 
     @MainActor
@@ -909,7 +984,7 @@ final class FoundationTests: XCTestCase {
     }
 
     @MainActor
-    func testCreatesMachineFromPreinstalledDiskWithoutInstaller() async throws {
+    func testPersistsInputProfileAcrossCreationEditingAndCloning() async throws {
         let rootURL = FileManager.default.temporaryDirectory.appending(
             path: UUID().uuidString,
             directoryHint: .isDirectory
@@ -924,9 +999,8 @@ final class FoundationTests: XCTestCase {
             at: sourceURL,
             capacityBytes: 1 * 1_024 * 1_024
         )
-        let model = AppModel(
-            storageRootURL: rootURL.appending(path: "Library")
-        )
+        let libraryURL = rootURL.appending(path: "Library")
+        let model = AppModel(storageRootURL: libraryURL)
         await model.initialize()
         let imageID = try await model.importImage(
             from: sourceURL,
@@ -939,7 +1013,8 @@ final class FoundationTests: XCTestCase {
             memorySizeBytes: 2 * 1_024 * 1_024 * 1_024,
             diskSizeBytes: 2 * 1_024 * 1_024,
             source: .managedImage(imageID),
-            sharedDirectoryPath: nil
+            sharedDirectoryPath: nil,
+            inputProfile: .macOSHyprland
         )
         let machine = try XCTUnwrap(
             model.machines.first(where: { $0.id == machineID })
@@ -948,6 +1023,29 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(machine.bootMedia, .systemDisk)
         XCTAssertEqual(machine.provisioningState, .ready)
         XCTAssertEqual(machine.disk.capacityBytes, 2 * 1_024 * 1_024)
+        XCTAssertEqual(machine.spec.inputProfile, .macOSHyprland)
+
+        await model.setInputProfile(.linuxPassthrough, for: machine)
+        let updatedMachine = try XCTUnwrap(
+            model.machines.first(where: { $0.id == machineID })
+        )
+        await model.cloneMachine(updatedMachine)
+
+        XCTAssertEqual(model.machines.count, 2)
+        XCTAssertTrue(
+            model.machines.allSatisfy {
+                $0.spec.inputProfile == .linuxPassthrough
+            }
+        )
+
+        let reloadedModel = AppModel(storageRootURL: libraryURL)
+        await reloadedModel.initialize()
+        XCTAssertEqual(reloadedModel.machines.count, 2)
+        XCTAssertTrue(
+            reloadedModel.machines.allSatisfy {
+                $0.spec.inputProfile == .linuxPassthrough
+            }
+        )
     }
 
     @MainActor

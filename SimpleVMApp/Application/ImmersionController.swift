@@ -188,7 +188,7 @@ final class ImmersionController {
         showsExitHint = false
         requiresAccessibilityPermission = false
         karabinerErrorMessage = nil
-        KeyboardMappingSettings.shared.deactivateMachinePreset()
+        KeyboardMappingSettings.shared.deactivate()
         window?.toolbar?.isVisible = true
 
         if enteredFullScreen, window?.styleMask.contains(.fullScreen) == true {
