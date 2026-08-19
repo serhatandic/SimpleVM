@@ -1,0 +1,13 @@
+{
+  "name": "SimpleVM Guest Tools for Linux",
+  "version": "2.0.0",
+  "protocolVersion": 2,
+  "python": ">=3.9",
+  "transports": [
+    "virtio-serial:com.simplevm.agent.0",
+    "vsock:1021"
+  ],
+  "installPrefix": "/usr/lib/simplevm-guest-tools",
+  "systemUnit": "simplevm-guest-tools.service",
+  "userUnit": "simplevm-guest-tools-session.service"
+}

@@ -30,6 +30,7 @@ guests and a QEMU/SPICE/Metal path for x86_64 compatibility.
 - Exportable library media and stopped-machine raw disks for migration
 - Persistent disks, EFI state, snapshots, restore, and APFS-backed clones
 - NAT networking, TCP port forwarding, and virtiofs directory sharing
+- First-party, capability-gated SimpleVM Guest Tools for Linux integration
 - Rosetta support for Intel Linux binaries in supported ARM64 guests
 - Preinstalled raw disks, rootfs archives, and OCI image provisioning
 
@@ -121,6 +122,92 @@ VM disks and installer media are intentionally excluded from Git.
 
 Machine exports contain the disk only. CPU, memory, networking, EFI variables,
 shares, snapshots, and other machine settings are not included.
+
+## SimpleVM Guest Tools
+
+Guest Tools are optional. VMs boot and remain usable when the agent is absent,
+stopped, incompatible, or temporarily disconnected. SimpleVM does not install
+software unattended, automate a guest password, or modify a guest disk to
+bootstrap the agent.
+
+Open **Guest Tools** in Machine Detail to see connection state, agent and Linux
+version, detected desktop/session, shared-folder mount state, and the exact
+capabilities advertised by that guest.
+
+### Install
+
+For an Apple Virtualization machine with a configured shared directory:
+
+1. Start the VM and open **Guest Tools**.
+2. Choose **Copy to Shared Folder**. This delivers
+   `simplevm-guest-tools.tar.gz`; it does not install it.
+3. Run the exact command shown by SimpleVM inside the guest:
+
+   ```sh
+   cd /mnt/simplevm-share && tar -xzf simplevm-guest-tools.tar.gz \
+     && cd GuestTools \
+     && ./install.sh --with-wayland-clipboard --with-x11-agent
+   ```
+
+For other machines, choose **Export Tools Bundle...**, move the archive into
+the guest using a method you trust, change to the directory containing it, and
+run:
+
+```sh
+tar -xzf simplevm-guest-tools.tar.gz \
+  && cd GuestTools \
+  && ./install.sh --with-wayland-clipboard --with-x11-agent
+```
+
+The installer supports modern systemd Debian/Ubuntu and Arch/Omarchy. It asks
+for `sudo`, installs a dedicated system service and per-user session service,
+and enables them only after validating the required runtime. Sign out and in
+once when prompted so the desktop user receives `simplevm-agent` group access.
+
+Optional installer flags install `wl-clipboard` for Wayland and
+`spice-vdagent` for supported X11/SPICE sessions. Vanilla `spice-vdagent` does
+not provide Hyprland Wayland clipboard integration or Hyprland display resize.
+
+To uninstall, run `./uninstall.sh` from the extracted bundle. The uninstaller
+removes the services and agent code but deliberately preserves
+`/mnt/simplevm-share` and its contents.
+
+### Supported integration
+
+| Guest/backend | Status and power | Shared folder | Clipboard | Display resize |
+| --- | --- | --- | --- | --- |
+| Apple VZ, GNOME/X11 | Guest Tools | `share` virtiofs auto-mount | Not currently available | Native VZ fallback |
+| Apple VZ, Wayland/Hyprland | Guest Tools | `share` virtiofs auto-mount | Guest Tools with `wl-copy`/`wl-paste` | Guest Tools when Hyprland advertises support |
+| QEMU/SPICE, GNOME/X11 | Guest Tools over virtio-serial | Not currently exposed by the QEMU backend | SPICE and `spice-vdagent` | SPICE monitor configuration |
+| QEMU/SPICE, Wayland/Hyprland | Guest Tools over virtio-serial | Not currently exposed by the QEMU backend | Guest Tools with `wl-copy`/`wl-paste` | Guest Tools when Hyprland advertises support |
+
+Clipboard integration is UTF-8 text only and rejects content over 1 MiB.
+SimpleVM compares clipboard fingerprints and change counters to suppress echo
+loops, does not log clipboard content, and polls only while the app and VM
+integration are active. Image, file, and rich-text clipboard formats are not
+forwarded.
+
+When a machine uses the **Automatic** desktop and input profile, a connected
+agent's detected GNOME or Hyprland desktop selects the active runtime mapping.
+An explicit profile selection is never overwritten. Without an agent, the
+existing machine-name fallback remains in effect.
+
+### Security model
+
+The host protocol is length-bounded, versioned JSON over QEMU's named
+virtio-serial port or Apple VZ AF_VSOCK port 1021. It exposes only status,
+graceful shutdown/reboot, fixed `share` mounting, bounded text clipboard, and
+validated display-size requests. It has no command-execution request.
+
+Inside Linux, a small root service owns the transport and only invokes fixed
+argument arrays for power and mounting the `share` tag at
+`/mnt/simplevm-share`. Desktop clipboard and compositor operations run in an
+unprivileged user service. Their Unix socket is group-restricted and validates
+peer credentials. See `GuestTools/SECURITY.md` and the Python sources in
+`GuestTools/src/` for the complete auditable boundary.
+
+Connection failures are shown in Machine Detail and never prevent VM startup.
+Use **Retry Connection** after starting or updating the guest services.
 
 ## Immersion and permissions
 
@@ -260,7 +347,10 @@ The fixture path and installer image remain local and are never committed.
 - No prebuilt or notarized release artifact
 - x86_64 CPU execution uses TCG software emulation
 - The accelerated x86_64 build currently expects UTM in `/Applications`
-- Guest tools are not installed automatically
+- Guest Tools require an explicit in-guest install and currently target
+  systemd Debian/Ubuntu and Arch/Omarchy
+- QEMU does not yet expose configured host directories as virtiofs shares;
+  use bundle export for QEMU guests
 - System workspace-swipe capture relies on macOS event behavior that may
   change between macOS releases
 

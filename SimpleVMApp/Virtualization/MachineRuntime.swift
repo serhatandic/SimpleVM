@@ -8,6 +8,7 @@ import Virtualization
 final class MachineRuntime {
     private(set) var state: MachineRuntimeState
     private(set) var virtualMachine: VZVirtualMachine?
+    let guestTools = GuestToolsCoordinator()
 
     @ObservationIgnored
     var stateHandler: ((MachineRuntimeState) -> Void)?
@@ -30,6 +31,9 @@ final class MachineRuntime {
     @ObservationIgnored
     private var lastWorkspaceSwipeTime = 0.0
 
+    @ObservationIgnored
+    private var lastRequestedDisplaySize: (Int, Int)?
+
     init(state: MachineRuntimeState = .stopped) {
         switch state {
         case .running, .starting, .stopping:
@@ -39,7 +43,10 @@ final class MachineRuntime {
         }
     }
 
-    func start(configuration: VZVirtualMachineConfiguration) async {
+    func start(
+        configuration: VZVirtualMachineConfiguration,
+        sharedDirectoryConfigured: Bool
+    ) async {
         guard state.canStart else {
             return
         }
@@ -56,22 +63,65 @@ final class MachineRuntime {
         do {
             try await virtualMachine.start()
             transition(to: .running)
+            guestTools.start(
+                sharedDirectoryConfigured: sharedDirectoryConfigured
+            ) { [weak virtualMachine] request in
+                guard let virtualMachine else {
+                    throw GuestAgentTransportError.unavailable
+                }
+                return try await AppleGuestAgentTransport.request(
+                    request,
+                    virtualMachine: virtualMachine
+                )
+            }
         } catch {
             clearVirtualMachine()
             transition(to: .failed(message: error.localizedDescription))
         }
     }
 
-    func requestStop() {
+    func requestStop() async {
         guard let virtualMachine, state == .running else {
             return
         }
 
+        if guestTools.supports(.gracefulShutdown) {
+            do {
+                try await guestTools.requestShutdown()
+                guard self.virtualMachine === virtualMachine,
+                      state == .running else {
+                    return
+                }
+                transition(to: .stopping)
+                return
+            } catch {
+                guard self.virtualMachine === virtualMachine,
+                      state == .running else {
+                    return
+                }
+                errorHandler?(error)
+            }
+        }
+
         do {
             try virtualMachine.requestStop()
-            transition(to: .stopping)
+            if self.virtualMachine === virtualMachine,
+               state == .running {
+                transition(to: .stopping)
+            }
         } catch {
-            transition(to: .running)
+            if self.virtualMachine === virtualMachine,
+               state == .running {
+                errorHandler?(error)
+            }
+        }
+    }
+
+    func requestReboot() async {
+        guard state == .running else { return }
+        do {
+            try await guestTools.requestReboot()
+        } catch {
             errorHandler?(error)
         }
     }
@@ -230,6 +280,27 @@ final class MachineRuntime {
         )
     }
 
+    func requestDisplaySize(width: Int, height: Int) {
+        guard guestTools.supports(.displayResize),
+              GuestDisplaySize.isValid(width: width, height: height),
+              lastRequestedDisplaySize?.0 != width
+                || lastRequestedDisplaySize?.1 != height else {
+            return
+        }
+        lastRequestedDisplaySize = (width, height)
+        Task { [weak self] in
+            do {
+                try await self?.guestTools.requestDisplayResize(
+                    width: width,
+                    height: height
+                )
+            } catch {
+                self?.lastRequestedDisplaySize = nil
+                self?.errorHandler?(error)
+            }
+        }
+    }
+
     private func handleDelegateState(_ state: MachineRuntimeState) {
         clearVirtualMachine()
         transition(to: state)
@@ -241,8 +312,10 @@ final class MachineRuntime {
     }
 
     private func clearVirtualMachine() {
+        guestTools.stop()
         pressedModifierKeyCodes.removeAll()
         pressedKeyEvents.removeAll()
+        lastRequestedDisplaySize = nil
         virtualMachine = nil
         virtualMachineDelegate = nil
     }

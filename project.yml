@@ -32,6 +32,9 @@ targets:
     sources:
       - path: SimpleVMApp
       - path: Resources
+      - path: GuestTools
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: SimpleVMCore
       - target: UTMQEMULauncher

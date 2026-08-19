@@ -1,19 +1,26 @@
 @preconcurrency import CocoaSpiceNoUsb
+import AppKit
 import Foundation
+import SimpleVMCore
 
 @MainActor
 final class SPICEConnectionController: NSObject {
     private(set) var display: CSDisplay?
     private(set) var input: CSInput?
     private(set) var supportsDisplayResize = false
+    private(set) var supportsClipboard = false
 
     var displayHandler: ((CSDisplay) -> Void)?
     var displayResizeSupportHandler: ((Bool) -> Void)?
+    var clipboardNoticeHandler: ((String) -> Void)?
     var errorHandler: ((any Error) -> Void)?
 
     private var connection: CSConnection?
     private var connectionContinuation:
         CheckedContinuation<Void, any Error>?
+    private let pasteboardBridge = SPICEPasteboardBridge()
+    private var clipboardPollingTask: Task<Void, Never>?
+    private var clipboardSharingAllowed = true
 
     func connect(to socketURL: URL) async throws {
         guard CSMain.shared.spiceStart() || CSMain.shared.running else {
@@ -25,6 +32,11 @@ final class SPICEConnectionController: NSObject {
                 let connection = CSConnection(
                     unixSocketFile: socketURL
                 )
+                pasteboardBridge.noticeHandler = { [weak self] message in
+                    self?.clipboardNoticeHandler?(message)
+                }
+                connection.session.pasteboardDelegate = pasteboardBridge
+                connection.session.shareClipboard = false
                 connection.delegate = self
                 self.connection = connection
                 do {
@@ -52,11 +64,21 @@ final class SPICEConnectionController: NSObject {
     }
 
     func disconnect() {
+        clipboardPollingTask?.cancel()
+        clipboardPollingTask = nil
+        connection?.session.shareClipboard = false
+        connection?.session.pasteboardDelegate = nil
         connection?.disconnect()
         connection = nil
         display = nil
         input = nil
         supportsDisplayResize = false
+        supportsClipboard = false
+    }
+
+    func setClipboardSharingAllowed(_ allowed: Bool) {
+        clipboardSharingAllowed = allowed
+        updateClipboardSharing()
     }
 
     func sendKey(_ event: GuestKeyEvent) {
@@ -88,6 +110,21 @@ final class SPICEConnectionController: NSObject {
 
     func releaseKeys() {
         input?.releaseKeys()
+    }
+
+    private func updateClipboardSharing() {
+        let enabled = supportsClipboard && clipboardSharingAllowed
+        connection?.session.shareClipboard = enabled
+        clipboardPollingTask?.cancel()
+        clipboardPollingTask = nil
+        guard enabled else { return }
+        pasteboardBridge.pollForHostChange()
+        clipboardPollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                self?.pasteboardBridge.pollForHostChange()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
+        }
     }
 }
 
@@ -209,7 +246,9 @@ extension SPICEConnectionController: CSConnectionDelegate {
         let supportsDisplayResize = features.rawValue != 0
         Task { @MainActor [weak self] in
             self?.supportsDisplayResize = supportsDisplayResize
+            self?.supportsClipboard = true
             self?.displayResizeSupportHandler?(supportsDisplayResize)
+            self?.updateClipboardSharing()
         }
     }
 
@@ -218,7 +257,9 @@ extension SPICEConnectionController: CSConnectionDelegate {
     ) {
         Task { @MainActor [weak self] in
             self?.supportsDisplayResize = false
+            self?.supportsClipboard = false
             self?.displayResizeSupportHandler?(false)
+            self?.updateClipboardSharing()
         }
     }
 
@@ -231,6 +272,155 @@ extension SPICEConnectionController: CSConnectionDelegate {
         _ connection: CSConnection,
         port: CSPort
     ) {}
+}
+
+private final class SPICEPasteboardBridge: NSObject,
+    CSPasteboardDelegate,
+    @unchecked Sendable
+{
+    private let lock = NSLock()
+    private var lastChangeCount = -1
+    private var cachedHostText: String?
+    private var loopGuard = ClipboardLoopGuard()
+    private var lastOversizeChangeCount: Int?
+    private var storedNoticeHandler: (@MainActor @Sendable (String) -> Void)?
+
+    var noticeHandler: (@MainActor @Sendable (String) -> Void)? {
+        get { withLock { storedNoticeHandler } }
+        set { withLock { storedNoticeHandler = newValue } }
+    }
+
+    func canReadItem(for type: CSPasteboardType) -> Bool {
+        guard type == .string else { return false }
+        return withLock {
+            guard let cachedHostText else { return false }
+            return loopGuard.canSendToGuest(cachedHostText)
+        }
+    }
+
+    func data(for type: CSPasteboardType) -> Data? {
+        guard type == .string else { return nil }
+        return withLock {
+            guard let cachedHostText,
+                  loopGuard.canSendToGuest(cachedHostText) else {
+                return nil
+            }
+            return Data(cachedHostText.utf8)
+        }
+    }
+
+    func setData(_ data: Data, for type: CSPasteboardType) {
+        guard type == .string,
+              data.count <= GuestAgentProtocol.maximumClipboardSize,
+              let text = String(data: data, encoding: .utf8),
+              !text.isEmpty else {
+            if data.count > GuestAgentProtocol.maximumClipboardSize {
+                emitNotice(
+                    "Guest clipboard sync skipped because the text exceeds 1 MiB."
+                )
+            }
+            return
+        }
+        setString(text)
+    }
+
+    func string() -> String? {
+        withLock {
+            guard let cachedHostText,
+                  loopGuard.canSendToGuest(cachedHostText) else {
+                return nil
+            }
+            return cachedHostText
+        }
+    }
+
+    func setString(_ string: String) {
+        guard !string.isEmpty,
+              string.utf8.count
+                <= GuestAgentProtocol.maximumClipboardSize else {
+            if string.utf8.count
+                > GuestAgentProtocol.maximumClipboardSize {
+                emitNotice(
+                    "Guest clipboard sync skipped because the text exceeds 1 MiB."
+                )
+            }
+            return
+        }
+        let shouldApply = withLock {
+            loopGuard.shouldApplyFromGuest(string)
+        }
+        guard shouldApply else { return }
+        Task { @MainActor [weak self] in
+            self?.applyGuestString(string)
+        }
+    }
+
+    func clearContents() {
+        // A guest clipboard release must not erase unrelated host clipboard data.
+    }
+
+    @MainActor
+    func pollForHostChange() {
+        let pasteboard = NSPasteboard.general
+        let changeCount = pasteboard.changeCount
+        let text = pasteboard.string(forType: .string)
+        var shouldAnnounce = false
+        var shouldReportOversize = false
+        withLock {
+            guard changeCount != lastChangeCount else { return }
+            lastChangeCount = changeCount
+            cachedHostText = nil
+            guard let text else { return }
+            guard text.utf8.count
+                    <= GuestAgentProtocol.maximumClipboardSize else {
+                if lastOversizeChangeCount != changeCount {
+                    lastOversizeChangeCount = changeCount
+                    shouldReportOversize = true
+                }
+                return
+            }
+            cachedHostText = text
+            shouldAnnounce = loopGuard.shouldAnnounceHostChange(text)
+        }
+        if shouldReportOversize {
+            emitNotice(
+                "Clipboard sync skipped because the text exceeds 1 MiB."
+            )
+        }
+        if shouldAnnounce {
+            NotificationCenter.default.post(
+                name: .csPasteboardChanged,
+                object: nil
+            )
+        }
+    }
+
+    @MainActor
+    private func applyGuestString(_ string: String) {
+        let pasteboard = NSPasteboard.general
+        if pasteboard.string(forType: .string) != string {
+            pasteboard.clearContents()
+            pasteboard.setString(string, forType: .string)
+        }
+        let changeCount = pasteboard.changeCount
+        withLock {
+            cachedHostText = string
+            lastChangeCount = changeCount
+        }
+    }
+
+    private func emitNotice(_ message: String) {
+        let handler = noticeHandler
+        Task { @MainActor in
+            handler?(message)
+        }
+    }
+
+    private func withLock<T>(_ body: () -> T) -> T {
+        lock.lock()
+        defer { lock.unlock() }
+        return body()
+    }
 }
 
 private enum SPICEConnectionError: LocalizedError {

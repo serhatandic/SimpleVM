@@ -41,6 +41,7 @@ final class ImmersiveVZMachineView: VZVirtualMachineView {
     var pointerInteractionHandler:
         ((Bool, NSEvent.ModifierFlags) -> Void)?
     private var buttonMask: UInt8 = 0
+    private var resizeTask: Task<Void, Never>?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -48,6 +49,27 @@ final class ImmersiveVZMachineView: VZVirtualMachineView {
 
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func layout() {
+        super.layout()
+        guard let window else { return }
+        let width = Int((bounds.width * window.backingScaleFactor).rounded())
+        let height = Int((bounds.height * window.backingScaleFactor).rounded())
+        resizeTask?.cancel()
+        resizeTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled else { return }
+            self?.runtime?.requestDisplaySize(width: width, height: height)
+        }
+    }
+
+    override func viewWillMove(toWindow newWindow: NSWindow?) {
+        if newWindow == nil {
+            resizeTask?.cancel()
+            resizeTask = nil
+        }
+        super.viewWillMove(toWindow: newWindow)
     }
 
     override func mouseDown(with event: NSEvent) {

@@ -7,6 +7,7 @@ public struct QEMUConfiguration: Equatable, Sendable {
     public let qmpSocketURL: URL
     public let logURL: URL
     public let spiceSocketURL: URL?
+    public let agentSocketURL: URL?
 
     public init(
         executableURL: URL,
@@ -14,7 +15,8 @@ public struct QEMUConfiguration: Equatable, Sendable {
         vncPort: UInt16,
         qmpSocketURL: URL,
         logURL: URL,
-        spiceSocketURL: URL? = nil
+        spiceSocketURL: URL? = nil,
+        agentSocketURL: URL? = nil
     ) {
         self.executableURL = executableURL
         self.arguments = arguments
@@ -22,6 +24,7 @@ public struct QEMUConfiguration: Equatable, Sendable {
         self.qmpSocketURL = qmpSocketURL
         self.logURL = logURL
         self.spiceSocketURL = spiceSocketURL
+        self.agentSocketURL = agentSocketURL
     }
 }
 
@@ -168,7 +171,8 @@ public enum QEMUConfigurationBuilder {
             logURL: logURL,
             spiceSocketURL: runtime.displayBackend == .vnc
                 ? nil
-                : spiceURL
+                : spiceURL,
+            agentSocketURL: agentURL
         )
     }
 }
