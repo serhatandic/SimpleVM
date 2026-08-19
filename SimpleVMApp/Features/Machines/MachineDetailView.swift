@@ -230,6 +230,8 @@ struct MachineDetailView: View {
                 },
                 exportBundle: exportGuestTools,
                 copyToShare: copyGuestToolsToShare,
+                chooseShare: chooseSharedFolder,
+                removeShare: removeSharedFolder,
                 reboot: {
                     Task {
                         await model.requestReboot(machine)
@@ -508,9 +510,33 @@ struct MachineDetailView: View {
                         for: machine
                     )
                 deliveredToolsMessage =
-                    "Copied \(destinationURL.lastPathComponent) to the configured shared folder. Delivery does not install or start Guest Tools."
+                    "Copied \(destinationURL.lastPathComponent) to the configured shared folder. Restart the VM if this folder was just configured, then run the shown guest command."
             } catch {
                 model.present(error: error)
+            }
+        }
+    }
+
+    private func chooseSharedFolder() {
+        guard let url = FilePicker.chooseDirectory() else { return }
+        let path = url.path(percentEncoded: false)
+        Task {
+            await model.setSharedDirectory(path, for: machine)
+            if model.machines.first(where: { $0.id == machine.id })?
+                .spec.sharedDirectoryPath == path {
+                deliveredToolsMessage =
+                    "Configured \(url.lastPathComponent) as the shared folder. Restart the VM to attach it, then copy the tools bundle."
+            }
+        }
+    }
+
+    private func removeSharedFolder() {
+        Task {
+            await model.setSharedDirectory(nil, for: machine)
+            if model.machines.first(where: { $0.id == machine.id })?
+                .spec.sharedDirectoryPath == nil {
+                deliveredToolsMessage =
+                    "The shared folder will be detached the next time this VM starts."
             }
         }
     }
@@ -524,6 +550,8 @@ struct MachineDetailView: View {
         let retry: () -> Void
         let exportBundle: () -> Void
         let copyToShare: () -> Void
+        let chooseShare: () -> Void
+        let removeShare: () -> Void
         let reboot: () -> Void
 
         private var status: GuestAgentStatus? {
@@ -531,8 +559,10 @@ struct MachineDetailView: View {
         }
 
         private var installCommand: String {
-            machine.hasConfiguredVirtioFSShare
-                ? GuestToolsBundleExporter.guestInstallCommand
+            machine.hasConfiguredSharedDirectory
+                ? GuestToolsBundleExporter.sharedInstallCommand(
+                    backend: machine.backend
+                )
                 : GuestToolsBundleExporter.manualInstallCommand
         }
 
@@ -582,12 +612,36 @@ struct MachineDetailView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 HStack {
-                    if machine.hasConfiguredVirtioFSShare {
+                    if machine.hasConfiguredSharedDirectory {
                         Button("Copy to Shared Folder", action: copyToShare)
                             .accessibilityIdentifier("guestTools.copyToShare")
                     }
                     Button("Export Tools Bundle...", action: exportBundle)
                         .accessibilityIdentifier("guestTools.export")
+                }
+                HStack {
+                    Button(
+                        machine.hasConfiguredSharedDirectory
+                            ? "Change Shared Folder..."
+                            : "Choose Shared Folder...",
+                        action: chooseShare
+                    )
+                    .accessibilityIdentifier("guestTools.chooseShare")
+                    if machine.hasConfiguredSharedDirectory {
+                        Button(
+                            "Remove Shared Folder",
+                            role: .destructive,
+                            action: removeShare
+                        )
+                        .accessibilityIdentifier("guestTools.removeShare")
+                    }
+                }
+                if let path = machine.spec.sharedDirectoryPath {
+                    LabeledContent(
+                        "Host folder",
+                        value: URL(filePath: path).lastPathComponent
+                    )
+                    .font(.caption)
                 }
                 if let deliveredMessage {
                     Label(deliveredMessage, systemImage: "checkmark.circle")
@@ -597,8 +651,8 @@ struct MachineDetailView: View {
                 }
 
                 Text(
-                    machine.hasConfiguredVirtioFSShare
-                        ? "In the guest, run:"
+                    machine.hasConfiguredSharedDirectory
+                        ? "After restarting the VM if the share was just configured, run:"
                         : "After moving the archive into the guest, run:"
                 )
                 .font(.caption.weight(.medium))
@@ -700,8 +754,11 @@ struct MachineDetailView: View {
             case .checking:
                 "Waiting for the guest agent. The VM remains usable without it."
             case .notConnected(let message):
-                message
-                    ?? "Guest Tools may not be installed or its service may not be running."
+                if let message {
+                    "Guest Tools are not installed or its service is not running. Install the bundle, then retry. Technical detail: \(message)"
+                } else {
+                    "Guest Tools are not installed or its service is not running. Install the bundle, then retry."
+                }
             case .incompatible(let message), .failed(let message):
                 message
             case .connected:
@@ -838,9 +895,8 @@ private extension Machine {
         return false
     }
 
-    var hasConfiguredVirtioFSShare: Bool {
-        backend == .appleVirtualization
-            && spec.sharedDirectoryPath != nil
+    var hasConfiguredSharedDirectory: Bool {
+        spec.sharedDirectoryPath != nil
     }
 }
 

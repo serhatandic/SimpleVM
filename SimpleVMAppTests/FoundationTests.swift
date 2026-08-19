@@ -1383,6 +1383,108 @@ final class FoundationTests: XCTestCase {
             encoding: .utf8
         )
         XCTAssertTrue(contents?.contains("GuestTools/install.sh") == true)
+        XCTAssertTrue(
+            GuestToolsBundleExporter.sharedInstallCommand(
+                backend: .appleVirtualization
+            ).contains("mount -t virtiofs")
+        )
+        XCTAssertTrue(
+            GuestToolsBundleExporter.sharedInstallCommand(
+                backend: .qemu
+            ).contains("mount -t 9p")
+        )
+        for backend in [
+            VirtualizationBackendKind.appleVirtualization,
+            .qemu
+        ] {
+            let command =
+                GuestToolsBundleExporter.sharedInstallCommand(
+                    backend: backend
+                )
+            XCTAssertTrue(
+                command.contains(
+                    "-C \"$HOME/simplevm-guest-tools\""
+                )
+            )
+            XCTAssertFalse(
+                command.contains(
+                    "cd /mnt/simplevm-share && tar"
+                )
+            )
+        }
+    }
+
+    @MainActor
+    func testQEMUMachineCanConfigureAndReceiveGuestToolsShare() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(
+            at: rootURL,
+            withIntermediateDirectories: true
+        )
+        let sourceURL = rootURL.appending(path: "base.raw")
+        try SparseDiskCreator.create(
+            at: sourceURL,
+            capacityBytes: 1 * 1_024 * 1_024
+        )
+        let shareURL = rootURL.appending(
+            path: "QEMU Share",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: shareURL,
+            withIntermediateDirectories: true
+        )
+        let model = AppModel(
+            storageRootURL: rootURL.appending(path: "Library")
+        )
+        await model.initialize()
+        let imageID = try await model.importImage(
+            from: sourceURL,
+            architecture: .x86_64,
+            artifactKind: .preinstalledDisk
+        )
+        let machineID = try await model.createMachine(
+            name: "QEMU Share",
+            cpuCount: 2,
+            memorySizeBytes: 2 * 1_024 * 1_024 * 1_024,
+            diskSizeBytes: 2 * 1_024 * 1_024,
+            source: .managedImage(imageID),
+            sharedDirectoryPath: nil
+        )
+        let machine = try XCTUnwrap(
+            model.machines.first(where: { $0.id == machineID })
+        )
+
+        await model.setSharedDirectory(shareURL.path, for: machine)
+        let updatedMachine = try XCTUnwrap(
+            model.machines.first(where: { $0.id == machineID })
+        )
+        XCTAssertEqual(
+            updatedMachine.spec.sharedDirectoryPath,
+            shareURL.path
+        )
+        let archiveURL = try await model.copyGuestToolsToSharedDirectory(
+            for: updatedMachine
+        )
+        XCTAssertEqual(
+            archiveURL,
+            shareURL.appending(
+                path: GuestToolsBundleExporter.archiveName
+            )
+        )
+        XCTAssertTrue(
+            FileManager.default.fileExists(atPath: archiveURL.path)
+        )
+
+        await model.setSharedDirectory(nil, for: updatedMachine)
+        XCTAssertNil(
+            model.machines.first(where: { $0.id == machineID })?
+                .spec.sharedDirectoryPath
+        )
     }
 
     func testGuestAgentSocketTransportRoundTripAndTimeout() async throws {

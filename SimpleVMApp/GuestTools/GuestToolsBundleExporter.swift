@@ -1,11 +1,32 @@
 import Foundation
+import SimpleVMCore
 
 struct GuestToolsBundleExporter: Sendable {
     static let archiveName = "simplevm-guest-tools.tar.gz"
     static let manualInstallCommand =
         "tar -xzf simplevm-guest-tools.tar.gz && cd GuestTools && ./install.sh --with-wayland-clipboard --with-x11-agent"
-    static let guestInstallCommand =
-        "cd /mnt/simplevm-share && tar -xzf simplevm-guest-tools.tar.gz && cd GuestTools && ./install.sh --with-wayland-clipboard --with-x11-agent"
+    static func sharedInstallCommand(
+        backend: VirtualizationBackendKind
+    ) -> String {
+        let mountCommand: String
+        switch backend {
+        case .appleVirtualization:
+            mountCommand =
+                "sudo mount -t virtiofs share /mnt/simplevm-share"
+        case .qemu:
+            mountCommand =
+                "sudo mount -t 9p -o trans=virtio,version=9p2000.L,msize=1048576 share /mnt/simplevm-share"
+        }
+        return [
+            "sudo mkdir -p /mnt/simplevm-share",
+            "(mountpoint -q /mnt/simplevm-share || \(mountCommand))",
+            "rm -rf \"$HOME/simplevm-guest-tools\"",
+            "mkdir -p \"$HOME/simplevm-guest-tools\"",
+            "tar -xzf /mnt/simplevm-share/simplevm-guest-tools.tar.gz -C \"$HOME/simplevm-guest-tools\"",
+            "cd \"$HOME/simplevm-guest-tools/GuestTools\"",
+            "./install.sh --with-wayland-clipboard --with-x11-agent"
+        ].joined(separator: " && ")
+    }
 
     private let sourceURL: URL
 

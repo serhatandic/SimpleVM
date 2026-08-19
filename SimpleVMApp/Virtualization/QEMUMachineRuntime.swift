@@ -178,7 +178,8 @@ final class QEMUMachineRuntime {
                     }
                 }
                 guestTools.start(
-                    sharedDirectoryConfigured: false
+                    sharedDirectoryConfigured:
+                        machine.spec.sharedDirectoryPath != nil
                 ) { request in
                     try await QEMUGuestAgentTransport.request(
                         request,

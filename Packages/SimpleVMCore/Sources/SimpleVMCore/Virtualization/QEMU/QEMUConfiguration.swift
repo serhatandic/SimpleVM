@@ -136,6 +136,27 @@ public enum QEMUConfigurationBuilder {
             "-device", "ich9-intel-hda,id=hda",
             "-device", "hda-output,bus=hda.0,audiodev=audio0"
         ]
+        if let sharedDirectoryPath = machine.spec.sharedDirectoryPath {
+            var isDirectory: ObjCBool = false
+            guard fileManager.fileExists(
+                atPath: sharedDirectoryPath,
+                isDirectory: &isDirectory
+            ), isDirectory.boolValue else {
+                throw QEMUConfigurationError.sharedDirectoryUnavailable(
+                    sharedDirectoryPath
+                )
+            }
+            let escapedPath = sharedDirectoryPath.replacingOccurrences(
+                of: ",",
+                with: ",,"
+            )
+            arguments.append(contentsOf: [
+                "-fsdev",
+                "local,id=shared,path=\(escapedPath),security_model=mapped-xattr,multidevs=remap",
+                "-device",
+                "virtio-9p-pci,fsdev=shared,mount_tag=share"
+            ])
+        }
         switch runtime.displayBackend {
         case .vnc:
             arguments.append(contentsOf: [
@@ -186,6 +207,7 @@ public enum QEMUConfigurationBuilder {
 public enum QEMUConfigurationError: LocalizedError, Equatable {
     case unsupportedArchitecture
     case invalidVNCPort
+    case sharedDirectoryUnavailable(String)
 
     public var errorDescription: String? {
         switch self {
@@ -193,6 +215,8 @@ public enum QEMUConfigurationError: LocalizedError, Equatable {
             "QEMU compatibility mode expects an x86_64 guest."
         case .invalidVNCPort:
             "The selected VNC port is invalid."
+        case .sharedDirectoryUnavailable(let path):
+            "The configured shared directory is unavailable: \(path)"
         }
     }
 }

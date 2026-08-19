@@ -35,6 +35,10 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
     let variablesTemplateURL = directory.appending(path: "edk2-vars.fd")
     let diskURL = directory.appending(path: "disk.raw")
     let installerURL = directory.appending(path: "installer.iso")
+    let sharedDirectoryURL = directory.appending(
+        path: "shared,folder",
+        directoryHint: .isDirectory
+    )
     for url in [
         executableURL,
         imageExecutableURL,
@@ -48,6 +52,10 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
             contents: Data(repeating: 0, count: 512)
         )
     }
+    try FileManager.default.createDirectory(
+        at: sharedDirectoryURL,
+        withIntermediateDirectories: true
+    )
 
     let imageID = UUID()
     let machine = Machine(
@@ -56,7 +64,8 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
             cpuCount: 2,
             memorySizeBytes: 2 * 1_024 * 1_024 * 1_024,
             diskSizeBytes: 8 * 1_024 * 1_024 * 1_024,
-            architecture: .x86_64
+            architecture: .x86_64,
+            sharedDirectoryPath: sharedDirectoryURL.path
         ),
         sourceImageID: imageID,
         disk: MachineDisk(
@@ -89,6 +98,16 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
     #expect(configuration.arguments.contains("Compatibility,, Test"))
     #expect(configuration.arguments.contains("127.0.0.1:1"))
     #expect(configuration.arguments.contains("virtio-vga,xres=1280,yres=800"))
+    #expect(
+        configuration.arguments.contains(
+            "local,id=shared,path=\(sharedDirectoryURL.path.replacingOccurrences(of: ",", with: ",,")),security_model=mapped-xattr,multidevs=remap"
+        )
+    )
+    #expect(
+        configuration.arguments.contains(
+            "virtio-9p-pci,fsdev=shared,mount_tag=share"
+        )
+    )
     #expect(configuration.arguments.contains("coreaudio,id=audio0"))
     #expect(configuration.arguments.contains("ich9-intel-hda,id=hda"))
     #expect(
@@ -115,6 +134,48 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
     #expect(configuration.arguments.contains {
         $0.contains("media=cdrom")
     })
+    var machineWithoutShare = machine
+    machineWithoutShare.spec.sharedDirectoryPath = nil
+    let configurationWithoutShare = try QEMUConfigurationBuilder.make(
+        machine: machineWithoutShare,
+        diskURL: diskURL,
+        installerURL: nil,
+        backendStateURL: backendURL,
+        runtime: QEMURuntime(
+            systemExecutableURL: executableURL,
+            imageExecutableURL: imageExecutableURL,
+            firmwareCodeURL: codeURL,
+            firmwareVariablesTemplateURL: variablesTemplateURL
+        ),
+        vncPort: 5_903
+    )
+    #expect(!configurationWithoutShare.arguments.contains("-fsdev"))
+    #expect(!configurationWithoutShare.arguments.contains {
+        $0.contains("virtio-9p")
+    })
+
+    var machineWithMissingShare = machine
+    machineWithMissingShare.spec.sharedDirectoryPath =
+        directory.appending(path: "missing-share").path
+    #expect(
+        throws: QEMUConfigurationError.sharedDirectoryUnavailable(
+            machineWithMissingShare.spec.sharedDirectoryPath!
+        )
+    ) {
+        try QEMUConfigurationBuilder.make(
+            machine: machineWithMissingShare,
+            diskURL: diskURL,
+            installerURL: nil,
+            backendStateURL: backendURL,
+            runtime: QEMURuntime(
+                systemExecutableURL: executableURL,
+                imageExecutableURL: imageExecutableURL,
+                firmwareCodeURL: codeURL,
+                firmwareVariablesTemplateURL: variablesTemplateURL
+            ),
+            vncPort: 5_904
+        )
+    }
     #expect(FileManager.default.fileExists(
         atPath: backendURL.appending(path: "efi-vars.fd").path
     ))

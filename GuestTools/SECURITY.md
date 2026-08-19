@@ -3,8 +3,9 @@
 The host API is an exact allowlist. It has no command execution request and
 accepts no host-provided executable, shell text, mount source, mount option, or
 path. Privileged subprocesses use fixed argument arrays with `shell=False`.
-The only mount is virtiofs tag `share` at `/mnt/simplevm-share`; power actions
-are `systemctl poweroff` and `systemctl reboot`.
+The only mount is tag `share` at `/mnt/simplevm-share`, using either virtiofs
+or QEMU 9p with fixed options; power actions are `systemctl poweroff` and
+`systemctl reboot`.
 
 Frames are UTF-8 JSON prefixed by a four-byte big-endian length. The 2 MiB
 frame limit is checked before allocation. Clipboard UTF-8 is limited to exactly

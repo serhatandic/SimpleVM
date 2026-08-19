@@ -24,7 +24,7 @@ class OperationTests(unittest.TestCase):
             "state": "notMounted",
             "mountPoint": operations.MOUNT_POINT,
             "tag": operations.MOUNT_TAG,
-            "filesystem": operations.MOUNT_FILESYSTEM,
+            "filesystem": operations.MOUNT_FILESYSTEMS[0],
         }
         after = dict(before, mounted=True, state="mounted")
         run = mock.Mock(
@@ -49,6 +49,53 @@ class OperationTests(unittest.TestCase):
             ],
         )
         self.assertFalse(run.call_args.kwargs["shell"])
+
+    def test_mount_falls_back_to_qemu_9p(self):
+        before = {
+            "mounted": False,
+            "state": "notMounted",
+            "mountPoint": operations.MOUNT_POINT,
+            "tag": operations.MOUNT_TAG,
+            "filesystem": operations.MOUNT_FILESYSTEMS[0],
+        }
+        after = dict(
+            before,
+            mounted=True,
+            state="mounted",
+            filesystem="9p",
+        )
+        run = mock.Mock(
+            side_effect=[
+                subprocess.CompletedProcess(
+                    [],
+                    returncode=32,
+                    stderr="unknown filesystem type 'virtiofs'",
+                ),
+                subprocess.CompletedProcess([], returncode=0, stderr=""),
+            ]
+        )
+        with mock.patch(
+            "simplevm_guest_tools.operations.shared_mount_status",
+            side_effect=[before, after],
+        ):
+            result = operations.mount_shared_directory(
+                run=run,
+                makedirs=mock.Mock(),
+            )
+        self.assertEqual(result["filesystem"], "9p")
+        self.assertEqual(
+            run.call_args_list[1].args[0],
+            [
+                "/usr/bin/mount",
+                "-t",
+                "9p",
+                "-o",
+                "trans=virtio,version=9p2000.L,msize=1048576",
+                "share",
+                "/mnt/simplevm-share",
+            ],
+        )
+        self.assertFalse(run.call_args_list[1].kwargs["shell"])
 
     def test_power_allowlist(self):
         with self.assertRaises(ValueError):

@@ -88,6 +88,8 @@ final class LaunchTests: XCTestCase {
         )
         XCTAssertTrue(app.buttons["guestTools.export"].exists)
         XCTAssertTrue(app.buttons["guestTools.copyToShare"].exists)
+        XCTAssertTrue(app.buttons["guestTools.chooseShare"].exists)
+        XCTAssertTrue(app.buttons["guestTools.removeShare"].exists)
         XCTAssertTrue(app.staticTexts["guestTools.installCommand"].exists)
 
         app.buttons["guestTools.copyToShare"].click()

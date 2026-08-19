@@ -29,7 +29,7 @@ guests and a QEMU/SPICE/Metal path for x86_64 compatibility.
 - Managed image imports and downloads with architecture detection and checksums
 - Exportable library media and stopped-machine raw disks for migration
 - Persistent disks, EFI state, snapshots, restore, and APFS-backed clones
-- NAT networking, TCP port forwarding, and virtiofs directory sharing
+- NAT networking, TCP port forwarding, VZ virtiofs, and QEMU 9p sharing
 - Automatic guest audio output on Apple Virtualization and QEMU/SPICE
 - First-party, capability-gated SimpleVM Guest Tools for Linux integration
 - Rosetta support for Intel Linux binaries in supported ARM64 guests
@@ -137,22 +137,46 @@ capabilities advertised by that guest.
 
 ### Install
 
-For an Apple Virtualization machine with a configured shared directory:
+For any existing machine:
 
 1. Start the VM and open **Guest Tools**.
-2. Choose **Copy to Shared Folder**. This delivers
+2. If no shared folder is configured, choose **Choose Shared Folder...** and
+   restart the VM so SimpleVM can attach the sharing device.
+3. Choose **Copy to Shared Folder**. This delivers
    `simplevm-guest-tools.tar.gz`; it does not install it.
-3. Run the exact command shown by SimpleVM inside the guest:
+4. Run the exact backend-specific command shown by SimpleVM inside the guest.
+   For Apple Virtualization it mounts virtiofs:
 
    ```sh
-   cd /mnt/simplevm-share && tar -xzf simplevm-guest-tools.tar.gz \
-     && cd GuestTools \
+   sudo mkdir -p /mnt/simplevm-share \
+     && (mountpoint -q /mnt/simplevm-share \
+      || sudo mount -t virtiofs share /mnt/simplevm-share) \
+     && rm -rf "$HOME/simplevm-guest-tools" \
+     && mkdir -p "$HOME/simplevm-guest-tools" \
+     && tar -xzf /mnt/simplevm-share/simplevm-guest-tools.tar.gz \
+      -C "$HOME/simplevm-guest-tools" \
+     && cd "$HOME/simplevm-guest-tools/GuestTools" \
      && ./install.sh --with-wayland-clipboard --with-x11-agent
    ```
 
-For other machines, choose **Export Tools Bundle...**, move the archive into
-the guest using a method you trust, change to the directory containing it, and
-run:
+   QEMU uses its built-in 9p device:
+
+   ```sh
+   sudo mkdir -p /mnt/simplevm-share \
+     && (mountpoint -q /mnt/simplevm-share \
+      || sudo mount -t 9p \
+        -o trans=virtio,version=9p2000.L,msize=1048576 \
+        share /mnt/simplevm-share) \
+     && rm -rf "$HOME/simplevm-guest-tools" \
+     && mkdir -p "$HOME/simplevm-guest-tools" \
+     && tar -xzf /mnt/simplevm-share/simplevm-guest-tools.tar.gz \
+       -C "$HOME/simplevm-guest-tools" \
+     && cd "$HOME/simplevm-guest-tools/GuestTools" \
+     && ./install.sh --with-wayland-clipboard --with-x11-agent
+   ```
+
+You can still choose **Export Tools Bundle...** and move the archive manually.
+After moving it, run:
 
 ```sh
 tar -xzf simplevm-guest-tools.tar.gz \
@@ -179,8 +203,8 @@ removes the services and agent code but deliberately preserves
 | --- | --- | --- | --- | --- |
 | Apple VZ, GNOME/X11 | Guest Tools | `share` virtiofs auto-mount | Not currently available | Native VZ fallback |
 | Apple VZ, Wayland/Hyprland | Guest Tools | `share` virtiofs auto-mount | Guest Tools with `wl-copy`/`wl-paste` | Guest Tools when Hyprland advertises support |
-| QEMU/SPICE, GNOME/X11 | Guest Tools over virtio-serial | Not currently exposed by the QEMU backend | SPICE and `spice-vdagent` | SPICE monitor configuration |
-| QEMU/SPICE, Wayland/Hyprland | Guest Tools over virtio-serial | Not currently exposed by the QEMU backend | Guest Tools with `wl-copy`/`wl-paste` | Guest Tools when Hyprland advertises support |
+| QEMU/SPICE, GNOME/X11 | Guest Tools over virtio-serial | `share` 9p auto-mount | SPICE and `spice-vdagent` | SPICE monitor configuration |
+| QEMU/SPICE, Wayland/Hyprland | Guest Tools over virtio-serial | `share` 9p auto-mount | Guest Tools with `wl-copy`/`wl-paste` | Guest Tools when Hyprland advertises support |
 
 Clipboard integration is UTF-8 text only and rejects content over 1 MiB.
 SimpleVM compares clipboard fingerprints and change counters to suppress echo
@@ -201,7 +225,7 @@ graceful shutdown/reboot, fixed `share` mounting, bounded text clipboard, and
 validated display-size requests. It has no command-execution request.
 
 Inside Linux, a small root service owns the transport and only invokes fixed
-argument arrays for power and mounting the `share` tag at
+argument arrays for power and mounting the `share` tag through virtiofs or 9p at
 `/mnt/simplevm-share`. Desktop clipboard and compositor operations run in an
 unprivileged user service. Their Unix socket is group-restricted and validates
 peer credentials. See `GuestTools/SECURITY.md` and the Python sources in
@@ -351,8 +375,8 @@ The fixture path and installer image remain local and are never committed.
 - Guest audio input and host microphone forwarding are not supported
 - Guest Tools require an explicit in-guest install and currently target
   systemd Debian/Ubuntu and Arch/Omarchy
-- QEMU does not yet expose configured host directories as virtiofs shares;
-  use bundle export for QEMU guests
+- QEMU shared folders use 9p rather than virtiofs and may have lower throughput
+  or different POSIX metadata behavior
 - System workspace-swipe capture relies on macOS event behavior that may
   change between macOS releases
 

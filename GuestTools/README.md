@@ -32,3 +32,9 @@ Run `./uninstall.sh` to remove the code and units. The shared mount directory
 is intentionally preserved. Run `./self-test.sh` for safe local tests.
 For additional desktop users, add each user to `simplevm-agent` and have that
 user sign out and in before starting the user unit.
+
+The fixed `share` tag is mounted at `/mnt/simplevm-share`. Apple
+Virtualization exposes it as virtiofs. QEMU exposes the configured host folder
+through its 9p device; the agent tries virtiofs first and then the fixed
+`9p2000.L` mount. Neither mount path accepts host-provided devices, options, or
+guest paths.

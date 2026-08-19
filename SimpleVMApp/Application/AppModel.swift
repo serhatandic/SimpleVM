@@ -932,6 +932,38 @@ final class AppModel {
         }
     }
 
+    func setSharedDirectory(
+        _ path: String?,
+        for machine: Machine
+    ) async {
+        guard let index = machines.firstIndex(where: {
+            $0.id == machine.id
+        }) else {
+            present(error: AppModelError.machineUnavailable)
+            return
+        }
+        if let path {
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(
+                atPath: path,
+                isDirectory: &isDirectory
+            ), isDirectory.boolValue else {
+                present(error: AppModelError.sharedDirectoryUnavailable)
+                return
+            }
+        }
+        let previousPath = machines[index].spec.sharedDirectoryPath
+        machines[index].spec.sharedDirectoryPath = path
+        do {
+            try await persist()
+        } catch {
+            updateMachine(id: machine.id) {
+                $0.spec.sharedDirectoryPath = previousPath
+            }
+            present(error: error)
+        }
+    }
+
     func removeImage(_ image: MachineImage) async {
         guard let imageStore else {
             present(error: AppModelError.notInitialized)
@@ -1022,8 +1054,7 @@ final class AppModel {
     func copyGuestToolsToSharedDirectory(
         for machine: Machine
     ) async throws -> URL {
-        guard machine.backend == .appleVirtualization,
-              let path = machine.spec.sharedDirectoryPath else {
+        guard let path = machine.spec.sharedDirectoryPath else {
             throw GuestToolsBundleError.destinationUnavailable
         }
         return try await Task.detached(priority: .userInitiated) {
@@ -1132,6 +1163,7 @@ private enum AppModelError: LocalizedError {
     case missingMachineName
     case machineMustBeStopped
     case invalidOCIReference
+    case sharedDirectoryUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -1155,6 +1187,8 @@ private enum AppModelError: LocalizedError {
             "Stop the machine before performing this action."
         case .invalidOCIReference:
             "Enter a valid OCI image reference."
+        case .sharedDirectoryUnavailable:
+            "The selected shared directory is unavailable."
         }
     }
 }
