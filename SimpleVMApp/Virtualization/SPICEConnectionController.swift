@@ -16,17 +16,16 @@ final class SPICEConnectionController: NSObject {
         CheckedContinuation<Void, any Error>?
 
     func connect(to socketURL: URL) async throws {
-        guard CSMain.shared.spiceStart() || CSMain.shared.running else {
+        guard Self.startClient() else {
             throw SPICEConnectionError.startFailed
         }
         var lastError: (any Error)?
         for _ in 0..<100 {
             if FileManager.default.fileExists(atPath: socketURL.path) {
-                let connection = CSConnection(
-                    unixSocketFile: socketURL
-                )
-                connection.delegate = self
-                self.connection = connection
+                prepareConnection(to: socketURL)
+                guard let connection else {
+                    throw SPICEConnectionError.connectionFailed
+                }
                 do {
                     try await withCheckedThrowingContinuation {
                         continuation in
@@ -49,6 +48,23 @@ final class SPICEConnectionController: NSObject {
             try await Task.sleep(for: .milliseconds(50))
         }
         throw lastError ?? SPICEConnectionError.unavailable
+    }
+
+    @discardableResult
+    func prepareConnection(to socketURL: URL) -> AnyObject {
+        let connection = CSConnection(unixSocketFile: socketURL)
+        connection.audioEnabled = true
+        connection.delegate = self
+        self.connection = connection
+        return connection
+    }
+
+    static func startClient() -> Bool {
+        CSMain.shared.spiceStart() || CSMain.shared.running
+    }
+
+    static func stopClient() {
+        CSMain.shared.spiceStop()
     }
 
     func disconnect() {

@@ -90,13 +90,16 @@ public enum QEMUConfigurationBuilder {
         }
         let networkDefinition = (["user", "id=net0"] + forwarding)
             .joined(separator: ",")
+        let audioBackend: String
         let cpuCount: Int
         let accelerator: String
         switch runtime.displayBackend {
         case .vnc:
+            audioBackend = "coreaudio,id=audio0"
             cpuCount = min(machine.spec.cpuCount, 2)
             accelerator = "tcg,tb-size=1024"
         case .spiceGL:
+            audioBackend = "spice,id=audio0"
             cpuCount = machine.spec.cpuCount
             accelerator = "tcg,thread=multi,tb-size=2048"
         }
@@ -125,7 +128,10 @@ public enum QEMUConfigurationBuilder {
             "virtio-blk-pci,drive=system-disk,bootindex=0",
             "-device", "virtio-rng-pci",
             "-netdev", networkDefinition,
-            "-device", "virtio-net-pci,netdev=net0"
+            "-device", "virtio-net-pci,netdev=net0",
+            "-audiodev", audioBackend,
+            "-device", "ich9-intel-hda,id=hda",
+            "-device", "hda-output,bus=hda.0,audiodev=audio0"
         ]
         switch runtime.displayBackend {
         case .vnc:

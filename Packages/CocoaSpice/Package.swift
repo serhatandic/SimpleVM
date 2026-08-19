@@ -32,7 +32,9 @@ let package = Package(
                 .headerSearchPath("ExternalHeaders/gstreamer-1.0"),
                 .headerSearchPath("ExternalHeaders/libusb-1.0"),
                 .headerSearchPath("ExternalHeaders/spice-1"),
-                .headerSearchPath("ExternalHeaders/spice-client-glib-2.0")]),
+                .headerSearchPath("ExternalHeaders/spice-client-glib-2.0")],
+            linkerSettings: [
+                .linkedFramework("AVFoundation")]),
         .target(
             name: "CocoaSpiceNoUsb",
             dependencies: ["CocoaSpiceRenderer"],
@@ -45,7 +47,9 @@ let package = Package(
                 .headerSearchPath("ExternalHeaders/glib-2.0"),
                 .headerSearchPath("ExternalHeaders/gstreamer-1.0"),
                 .headerSearchPath("ExternalHeaders/spice-1"),
-                .headerSearchPath("ExternalHeaders/spice-client-glib-2.0")]),
+                .headerSearchPath("ExternalHeaders/spice-client-glib-2.0")],
+            linkerSettings: [
+                .linkedFramework("AVFoundation")]),
         .testTarget(
             name: "CocoaSpiceTests",
             dependencies: ["CocoaSpice"],

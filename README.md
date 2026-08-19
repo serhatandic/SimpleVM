@@ -30,6 +30,7 @@ guests and a QEMU/SPICE/Metal path for x86_64 compatibility.
 - Exportable library media and stopped-machine raw disks for migration
 - Persistent disks, EFI state, snapshots, restore, and APFS-backed clones
 - NAT networking, TCP port forwarding, and virtiofs directory sharing
+- Automatic guest audio output on Apple Virtualization and QEMU/SPICE
 - Rosetta support for Intel Linux binaries in supported ARM64 guests
 - Preinstalled raw disks, rootfs archives, and OCI image provisioning
 
@@ -39,10 +40,10 @@ release test matrix.
 
 ## Architecture
 
-| Guest | Backend | CPU | Display |
-| --- | --- | --- | --- |
-| ARM64 Linux | Apple Virtualization | Hardware virtualization | `VZVirtualMachineView` |
-| x86_64 Linux | QEMU | TCG software emulation | UTM QEMU, SPICE, CocoaSpice, Metal |
+| Guest | Backend | CPU | Display | Audio output |
+| --- | --- | --- | --- | --- |
+| ARM64 Linux | Apple Virtualization | Hardware virtualization | `VZVirtualMachineView` | Virtio sound |
+| x86_64 Linux | QEMU | TCG software emulation | UTM QEMU, SPICE, CocoaSpice, Metal | Intel HDA over SPICE or Core Audio |
 
 The x86_64 display path is GPU-accelerated, but its CPU remains fully emulated.
 It is intended for compatibility and will not match native ARM64 performance.
@@ -259,6 +260,7 @@ The fixture path and installer image remain local and are never committed.
 - x86_64 CPU execution uses TCG software emulation
 - The accelerated x86_64 build currently expects UTM in `/Applications`
 - Guest tools are not installed automatically
+- Guest audio input and host microphone forwarding are not supported
 - System workspace-swipe capture relies on macOS event behavior that may
   change between macOS releases
 
