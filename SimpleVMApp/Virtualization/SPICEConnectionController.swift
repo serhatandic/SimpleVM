@@ -23,22 +23,16 @@ final class SPICEConnectionController: NSObject {
     private var clipboardSharingAllowed = true
 
     func connect(to socketURL: URL) async throws {
-        guard CSMain.shared.spiceStart() || CSMain.shared.running else {
+        guard Self.startClient() else {
             throw SPICEConnectionError.startFailed
         }
         var lastError: (any Error)?
         for _ in 0..<100 {
             if FileManager.default.fileExists(atPath: socketURL.path) {
-                let connection = CSConnection(
-                    unixSocketFile: socketURL
-                )
-                pasteboardBridge.noticeHandler = { [weak self] message in
-                    self?.clipboardNoticeHandler?(message)
+                prepareConnection(to: socketURL)
+                guard let connection else {
+                    throw SPICEConnectionError.connectionFailed
                 }
-                connection.session.pasteboardDelegate = pasteboardBridge
-                connection.session.shareClipboard = false
-                connection.delegate = self
-                self.connection = connection
                 do {
                     try await withCheckedThrowingContinuation {
                         continuation in
@@ -61,6 +55,36 @@ final class SPICEConnectionController: NSObject {
             try await Task.sleep(for: .milliseconds(50))
         }
         throw lastError ?? SPICEConnectionError.unavailable
+    }
+
+    @discardableResult
+    func prepareConnection(to socketURL: URL) -> AnyObject {
+        let connection = CSConnection(unixSocketFile: socketURL)
+        connection.audioEnabled = true
+        pasteboardBridge.noticeHandler = { [weak self] message in
+            self?.clipboardNoticeHandler?(message)
+        }
+        connection.session.pasteboardDelegate = pasteboardBridge
+        connection.session.shareClipboard = false
+        connection.delegate = self
+        self.connection = connection
+        return connection
+    }
+
+    var preparedConnectionAudioEnabled: Bool {
+        connection?.audioEnabled == true
+    }
+
+    var preparedConnectionHasPasteboardDelegate: Bool {
+        connection?.session.pasteboardDelegate != nil
+    }
+
+    static func startClient() -> Bool {
+        CSMain.shared.spiceStart() || CSMain.shared.running
+    }
+
+    static func stopClient() {
+        CSMain.shared.spiceStop()
     }
 
     func disconnect() {

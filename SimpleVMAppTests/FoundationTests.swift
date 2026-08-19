@@ -22,6 +22,29 @@ final class FoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testSPICEControllerRetainsConnectionUntilDisconnect() {
+        XCTAssertTrue(SPICEConnectionController.startClient())
+        defer { SPICEConnectionController.stopClient() }
+
+        let controller = SPICEConnectionController()
+        weak var retainedConnection: AnyObject?
+        autoreleasepool {
+            let connection = controller.prepareConnection(
+                to: URL(filePath: "/tmp/simplevm-audio-test.sock")
+            )
+            XCTAssertTrue(controller.preparedConnectionAudioEnabled)
+            XCTAssertTrue(
+                controller.preparedConnectionHasPasteboardDelegate
+            )
+            retainedConnection = connection
+        }
+        XCTAssertNotNil(retainedConnection)
+
+        controller.disconnect()
+        XCTAssertNil(retainedConnection)
+    }
+
+    @MainActor
     func testImmersionExitShortcutIsHostOnly() throws {
         let matching = try XCTUnwrap(
             NSEvent.keyEvent(
@@ -867,6 +890,21 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(
             scanout.heightInPixels,
             AppleVirtualMachineConfigurationFactory.defaultDisplayHeight
+        )
+        let audioDevice = try XCTUnwrap(
+            first.audioDevices.first as? VZVirtioSoundDeviceConfiguration
+        )
+        XCTAssertEqual(first.audioDevices.count, 1)
+        XCTAssertEqual(audioDevice.streams.count, 1)
+        let output = try XCTUnwrap(
+            audioDevice.streams.first
+                as? VZVirtioSoundDeviceOutputStreamConfiguration
+        )
+        XCTAssertTrue(output.sink is VZHostAudioOutputStreamSink)
+        XCTAssertFalse(
+            audioDevice.streams.contains {
+                $0 is VZVirtioSoundDeviceInputStreamConfiguration
+            }
         )
         XCTAssertEqual(try Data(contentsOf: identifierURL), firstIdentifier)
         XCTAssertTrue(

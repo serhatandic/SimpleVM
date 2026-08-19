@@ -89,6 +89,13 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
     #expect(configuration.arguments.contains("Compatibility,, Test"))
     #expect(configuration.arguments.contains("127.0.0.1:1"))
     #expect(configuration.arguments.contains("virtio-vga,xres=1280,yres=800"))
+    #expect(configuration.arguments.contains("coreaudio,id=audio0"))
+    #expect(configuration.arguments.contains("ich9-intel-hda,id=hda"))
+    #expect(
+        configuration.arguments.contains(
+            "hda-output,bus=hda.0,audiodev=audio0"
+        )
+    )
     #expect(
         configuration.arguments.contains(
             "virtio-blk-pci,drive=system-disk,bootindex=0"
@@ -145,6 +152,15 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
     ))
     #expect(accelerated.arguments.contains("virtio-keyboard-pci"))
     #expect(accelerated.arguments.contains("virtio-tablet-pci"))
+    #expect(accelerated.arguments.contains("spice,id=audio0"))
+    #expect(accelerated.arguments.contains("ich9-intel-hda,id=hda"))
+    #expect(
+        accelerated.arguments.contains(
+            "hda-output,bus=hda.0,audiodev=audio0"
+        )
+    )
+    #expect(!accelerated.arguments.contains { $0.hasPrefix("hda-duplex") })
+    #expect(!accelerated.arguments.contains { $0.hasPrefix("hda-micro") })
     #expect(accelerated.arguments.contains("tcg,thread=multi,tb-size=2048"))
     #expect(accelerated.arguments.contains(where: {
         $0.contains("disable-ticketing=on,gl=on")

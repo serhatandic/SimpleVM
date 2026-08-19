@@ -15,6 +15,7 @@
 //
 
 #import "CocoaSpice.h"
+#import "CSAudioPlayback.h"
 #import "CSChannel+Protected.h"
 #import "CSCursor+Protected.h"
 #import "CSDisplay+Protected.h"
@@ -37,7 +38,7 @@
 @property (nonatomic, readwrite) NSMutableArray<CSChannel *> *mutableChannels;
 @property (nonatomic, readwrite) SpiceSession *spiceSession;
 @property (nonatomic, readwrite) SpiceMainChannel *spiceMain;
-@property (nonatomic, readwrite) SpiceAudio *spiceAudio;
+@property (nonatomic, strong) CSAudioPlayback *audioPlayback;
 
 @end
 
@@ -237,7 +238,8 @@ static void cs_channel_new(SpiceSession *s, SpiceChannel *channel, gpointer data
     if (SPICE_IS_PLAYBACK_CHANNEL(channel)) {
         SPICE_DEBUG("new audio channel");
         if (self.audioEnabled) {
-            self.spiceAudio = spice_audio_get(s, [CSMain sharedInstance].glibMainContext);
+            self.audioPlayback = [[CSAudioPlayback alloc]
+                initWithChannel:SPICE_PLAYBACK_CHANNEL(channel)];
             spice_channel_connect(channel);
         } else {
             SPICE_DEBUG("audio disabled");
@@ -281,7 +283,7 @@ static void cs_channel_destroy(SpiceSession *s, SpiceChannel *channel, gpointer 
     
     if (SPICE_IS_PLAYBACK_CHANNEL(channel)) {
         SPICE_DEBUG("zap audio channel");
-        self.spiceAudio = NULL;
+        self.audioPlayback = nil;
     }
     
     if (SPICE_IS_PORT_CHANNEL(channel)) {

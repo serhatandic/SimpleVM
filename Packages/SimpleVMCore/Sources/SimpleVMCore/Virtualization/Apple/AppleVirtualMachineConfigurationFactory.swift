@@ -78,6 +78,7 @@ public enum AppleVirtualMachineConfigurationFactory {
         configuration.storageDevices = storageDevices
         configuration.networkDevices = [makeNetworkDevice()]
         configuration.graphicsDevices = [makeGraphicsDevice()]
+        configuration.audioDevices = [makeAudioDevice()]
         configuration.keyboards = [VZUSBKeyboardConfiguration()]
         configuration.pointingDevices = [
             VZUSBScreenCoordinatePointingDeviceConfiguration()
@@ -127,6 +128,16 @@ public enum AppleVirtualMachineConfigurationFactory {
                 heightInPixels: defaultDisplayHeight
             )
         ]
+        return device
+    }
+
+    @MainActor
+    private static func makeAudioDevice() -> VZVirtioSoundDeviceConfiguration {
+        let output = VZVirtioSoundDeviceOutputStreamConfiguration()
+        output.sink = VZHostAudioOutputStreamSink()
+
+        let device = VZVirtioSoundDeviceConfiguration()
+        device.streams = [output]
         return device
     }
 

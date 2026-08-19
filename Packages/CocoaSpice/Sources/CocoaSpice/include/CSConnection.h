@@ -58,7 +58,7 @@ NS_ASSUME_NONNULL_BEGIN
 /// If set, will attempt a SPICE ticket auth
 @property (nonatomic, nullable, copy) NSString *password;
 
-/// When enabled, gstreamer is used to provide audio input/output. Defaults to disabled
+/// When enabled, SPICE playback is routed to the host audio output. Defaults to disabled.
 @property (nonatomic, assign) BOOL audioEnabled;
 
 - (instancetype)init NS_UNAVAILABLE;
