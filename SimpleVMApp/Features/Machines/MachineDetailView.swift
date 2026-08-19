@@ -96,6 +96,33 @@ struct MachineDetailView: View {
                         }
                         Divider()
                     }
+                    Menu("Desktop and Input Profile") {
+                        ForEach(MachineInputProfile.allCases) { profile in
+                            Button {
+                                Task {
+                                    await model.setInputProfile(
+                                        profile,
+                                        for: machine
+                                    )
+                                }
+                            } label: {
+                                if machine.spec.inputProfile == profile {
+                                    Label(
+                                        profile.displayName,
+                                        systemImage: "checkmark"
+                                    )
+                                } else {
+                                    Text(profile.displayName)
+                                }
+                            }
+                        }
+                        if machine.spec.inputProfile == .automatic {
+                            Divider()
+                            Text(
+                                "Active: \(resolvedInputProfile.displayName)"
+                            )
+                        }
+                    }
                     if machine.hasInstallerAttached {
                         Button("Eject Installer") {
                             Task {
@@ -321,6 +348,7 @@ struct MachineDetailView: View {
                     countStyle: .file
                 )
             )
+            StatusValue(title: "Profile", value: inputProfileStatus)
             StatusValue(title: "Network", value: "Shared NAT")
             Spacer()
         }
@@ -330,7 +358,8 @@ struct MachineDetailView: View {
     }
 
     private func enterImmersion() {
-        KeyboardMappingSettings.shared.activatePreset(
+        KeyboardMappingSettings.shared.activate(
+            profile: machine.spec.inputProfile,
             forMachineNamed: machine.name
         )
         switch machine.backend {
@@ -365,6 +394,17 @@ struct MachineDetailView: View {
                 usesKarabinerInput: false
             )
         }
+    }
+
+    private var resolvedInputProfile: MachineInputProfile {
+        machine.spec.inputProfile.resolved(forMachineNamed: machine.name)
+    }
+
+    private var inputProfileStatus: String {
+        if machine.spec.inputProfile == .automatic {
+            return "Automatic (\(resolvedInputProfile.displayName))"
+        }
+        return resolvedInputProfile.displayName
     }
 
     private func exportDisk() {

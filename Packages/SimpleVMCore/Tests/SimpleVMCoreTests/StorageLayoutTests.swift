@@ -57,6 +57,85 @@ func roundTripsLibrarySnapshot() async throws {
 }
 
 @Test
+func decodesExistingLibraryJSONWithAutomaticInputProfile() throws {
+    let machineID = UUID()
+    let imageID = UUID()
+    let machine = Machine(
+        id: machineID,
+        name: "Existing Linux",
+        spec: MachineSpec(
+            cpuCount: 2,
+            memorySizeBytes: 4 * 1_024 * 1_024 * 1_024,
+            diskSizeBytes: 64 * 1_024 * 1_024 * 1_024,
+            architecture: .arm64
+        ),
+        sourceImageID: imageID,
+        disk: MachineDisk(
+            relativePath: "Machines/\(machineID)/disk.raw",
+            capacityBytes: 64 * 1_024 * 1_024 * 1_024
+        ),
+        provisioningState: .ready,
+        bootMedia: .systemDisk,
+        backend: .appleVirtualization,
+        backendState: BackendStateReference(
+            relativeDirectory: "Machines/\(machineID)/Apple"
+        )
+    )
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let currentData = try encoder.encode(
+        LibrarySnapshot(machines: [machine])
+    )
+    var json = try #require(
+        JSONSerialization.jsonObject(with: currentData)
+            as? [String: Any]
+    )
+    var machines = try #require(json["machines"] as? [[String: Any]])
+    var spec = try #require(machines[0]["spec"] as? [String: Any])
+    spec.removeValue(forKey: "inputProfile")
+    machines[0]["spec"] = spec
+    json["machines"] = machines
+    let existingData = try JSONSerialization.data(withJSONObject: json)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let decoded = try decoder.decode(
+        LibrarySnapshot.self,
+        from: existingData
+    )
+
+    #expect(decoded.machines[0].spec.inputProfile == .automatic)
+    #expect(
+        decoded.machines[0].spec.inputProfile.resolved(
+            forMachineNamed: decoded.machines[0].name
+        ) == .macOSGNOME
+    )
+}
+
+@Test
+func automaticProfileDetectsOmarchyAndHyprlandNames() {
+    #expect(
+        MachineInputProfile.automatic.resolved(
+            forMachineNamed: "Omarchy 4.0"
+        ) == .macOSHyprland
+    )
+    #expect(
+        MachineInputProfile.automatic.resolved(
+            forMachineNamed: "Arch Hyprland"
+        ) == .macOSHyprland
+    )
+}
+
+@Test
+func explicitHyprlandProfileOverridesGenericMachineName() {
+    #expect(
+        MachineInputProfile.macOSHyprland.resolved(
+            forMachineNamed: "Generic Arch Linux"
+        ) == .macOSHyprland
+    )
+}
+
+@Test
 func rejectsUnknownSchema() async throws {
     let rootURL = FileManager.default.temporaryDirectory.appending(
         path: UUID().uuidString,

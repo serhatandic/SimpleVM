@@ -1,12 +1,10 @@
 import AppKit
-import Observation
+import SimpleVMCore
 
-enum KeyboardPreset: String, CaseIterable, Identifiable {
-    case macOS = "macOS-style Linux"
-    case hyprland = "macOS-style Hyprland"
-    case passthrough = "Linux passthrough"
-
-    var id: Self { self }
+enum KeyboardPreset {
+    case gnome
+    case hyprland
+    case passthrough
 }
 
 struct GuestChord: Equatable {
@@ -42,26 +40,10 @@ struct KeyboardMappingEntry: Equatable {
 }
 
 @MainActor
-@Observable
 final class KeyboardMappingSettings {
     static let shared = KeyboardMappingSettings()
 
-    var preset: KeyboardPreset {
-        didSet {
-            UserDefaults.standard.set(preset.rawValue, forKey: "keyboardPreset")
-        }
-    }
-
-    @ObservationIgnored
-    private var activeMachinePreset: KeyboardPreset?
-
-    init() {
-        preset = KeyboardPreset(
-            rawValue: UserDefaults.standard.string(
-                forKey: "keyboardPreset"
-            ) ?? ""
-        ) ?? .macOS
-    }
+    private(set) var activePreset: KeyboardPreset = .gnome
 
     func chord(
         keyCode: UInt16,
@@ -73,7 +55,7 @@ final class KeyboardMappingSettings {
             .control,
             .shift
         ])
-        guard effectivePreset != .passthrough else {
+        guard activePreset != .passthrough else {
             return GuestChord(keyCode: keyCode, modifiers: normalized)
         }
         let resolved = mappings[
@@ -87,7 +69,7 @@ final class KeyboardMappingSettings {
         keyCode: UInt16,
         modifiers: NSEvent.ModifierFlags
     ) {
-        guard effectivePreset == .hyprland,
+        guard activePreset == .hyprland,
               modifiers.intersection([
                 .command,
                 .option,
@@ -106,7 +88,7 @@ final class KeyboardMappingSettings {
     }
 
     func workspaceChord(direction: WorkspaceSwipeDirection) -> GuestChord {
-        switch effectivePreset {
+        switch activePreset {
         case .hyprland:
             return GuestChord(
                 keyCode: direction == .next ? 48 : 48,
@@ -114,7 +96,7 @@ final class KeyboardMappingSettings {
                     ? [.command]
                     : [.command, .shift]
             )
-        case .macOS, .passthrough:
+        case .gnome, .passthrough:
             return GuestChord(
                 keyCode: direction == .next ? 121 : 116,
                 modifiers: [.command]
@@ -126,7 +108,7 @@ final class KeyboardMappingSettings {
         direction: WorkspaceSwipeDirection,
         workspaceCount: Int
     ) -> GuestChord {
-        guard effectivePreset == .hyprland else {
+        guard activePreset == .hyprland else {
             return workspaceChord(direction: direction)
         }
         let count = min(
@@ -161,18 +143,25 @@ final class KeyboardMappingSettings {
             .control,
             .shift
         ])
-        if effectivePreset == .macOS, result.contains(.command) {
+        if activePreset == .gnome, result.contains(.command) {
             result.remove(.command)
             result.insert(.control)
         }
         return result
     }
 
-    var mappingDescriptions: [(host: String, guest: String)] {
-        switch effectivePreset {
+    func mappingDescriptions(
+        for profile: MachineInputProfile,
+        machineName: String = ""
+    ) -> [(host: String, guest: String)] {
+        let preset = Self.preset(
+            for: profile,
+            machineName: machineName
+        )
+        return switch preset {
         case .passthrough:
             [("Command", "Super"), ("Option", "Alt"), ("Control", "Control")]
-        case .macOS:
+        case .gnome:
             Self.sharedDescriptions + [
                 ("⌘W", "Ctrl+W"),
                 ("⌘Q", "Alt+F4"),
@@ -202,7 +191,7 @@ final class KeyboardMappingSettings {
     private var mappings: [HostChord: GuestChord] {
         Dictionary(
             uniqueKeysWithValues: Self.mappingEntries(
-                for: effectivePreset
+                for: activePreset
             ).map { ($0.host, $0.guest) }
         )
     }
@@ -280,7 +269,7 @@ final class KeyboardMappingSettings {
         add(117, [.option], [.control])
 
         switch preset {
-        case .macOS:
+        case .gnome:
             add(
                 12,
                 [.command],
@@ -384,14 +373,12 @@ final class KeyboardMappingSettings {
             }
     }
 
-    func activatePreset(forMachineNamed name: String) {
-        let normalized = name.lowercased()
-        activeMachinePreset =
-            normalized.contains("omarchy")
-            || normalized.contains("hyprland")
-            ? .hyprland
-            : preset
-        if activeMachinePreset == .hyprland {
+    func activate(
+        profile: MachineInputProfile,
+        forMachineNamed name: String
+    ) {
+        activePreset = Self.preset(for: profile, machineName: name)
+        if activePreset == .hyprland {
             UserDefaults.standard.set(
                 1,
                 forKey: "hyprlandWorkspaceIndex"
@@ -399,22 +386,28 @@ final class KeyboardMappingSettings {
         }
     }
 
-    func deactivateMachinePreset() {
-        activeMachinePreset = nil
+    func deactivate() {
+        activePreset = .gnome
     }
 
-    private var effectivePreset: KeyboardPreset {
-        activeMachinePreset ?? preset
-    }
-
-    var activePreset: KeyboardPreset {
-        effectivePreset
+    private static func preset(
+        for profile: MachineInputProfile,
+        machineName: String
+    ) -> KeyboardPreset {
+        switch profile.resolved(forMachineNamed: machineName) {
+        case .automatic, .macOSGNOME:
+            .gnome
+        case .macOSHyprland:
+            .hyprland
+        case .linuxPassthrough:
+            .passthrough
+        }
     }
 
     private func synchronizeHyprlandWorkspace(
         with chord: GuestChord
     ) {
-        guard effectivePreset == .hyprland,
+        guard activePreset == .hyprland,
               chord.modifiers == .command,
               let index = Self.hyprlandWorkspaceKeyCodes.firstIndex(
                 of: chord.keyCode

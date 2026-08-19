@@ -12,6 +12,7 @@ struct NewMachineView: View {
     @State private var cpuCount = min(4, ProcessInfo.processInfo.processorCount)
     @State private var memoryGiB = 4
     @State private var diskGiB = 64
+    @State private var inputProfile = MachineInputProfile.automatic
     @State private var source: MachineCreationSource?
     @State private var sharedDirectoryPath: String?
     @State private var rosettaEnabled = false
@@ -178,6 +179,16 @@ struct NewMachineView: View {
                 in: 16...2_048,
                 step: 8
             )
+            Picker("Desktop and input profile", selection: $inputProfile) {
+                ForEach(MachineInputProfile.allCases) { profile in
+                    Text(profile.displayName).tag(profile)
+                }
+            }
+            Text(
+                "Automatic uses Hyprland mappings for known Omarchy or Hyprland machines and GNOME/Linux mappings otherwise."
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
     }
 
@@ -327,7 +338,8 @@ struct NewMachineView: View {
                                 guestPort: UInt16(clamping: guestPort)
                             )
                         ]
-                        : []
+                        : [],
+                    inputProfile: inputProfile
                 )
                 onCreated(machineID)
             } catch {
