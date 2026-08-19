@@ -5,7 +5,7 @@ import Virtualization
 
 struct SettingsView: View {
     let storageURL: URL?
-    @State private var keyboard = KeyboardMappingSettings.shared
+    @State private var mappingReference = MachineInputProfile.macOSGNOME
 
     var body: some View {
         Form {
@@ -45,11 +45,9 @@ struct SettingsView: View {
                 }
             }
             Section {
-                Picker("Keyboard profile", selection: $keyboard.preset) {
-                    ForEach(KeyboardPreset.allCases) { preset in
-                        Text(preset.rawValue).tag(preset)
-                    }
-                }
+                Text(
+                    "Desktop and input profiles are configured per machine from the machine actions menu."
+                )
                 LabeledContent(
                     "System input capture",
                     value: ImmersiveInputCapture.hasAccessibilityAccess
@@ -74,9 +72,22 @@ struct SettingsView: View {
                 )
             }
 
-            Section("Active Key Mappings") {
+            Section("Keyboard Mapping Reference") {
+                Picker("Profile to preview", selection: $mappingReference) {
+                    ForEach(
+                        MachineInputProfile.allCases.filter {
+                            $0 != .automatic
+                        }
+                    ) { profile in
+                        Text(profile.displayName).tag(profile)
+                    }
+                }
                 ForEach(
-                    Array(keyboard.mappingDescriptions.enumerated()),
+                    Array(
+                        KeyboardMappingSettings.shared.mappingDescriptions(
+                            for: mappingReference
+                        ).enumerated()
+                    ),
                     id: \.offset
                 ) { _, mapping in
                     LabeledContent(mapping.host, value: mapping.guest)

@@ -1,5 +1,40 @@
 import Foundation
 
+public enum MachineInputProfile: String, Codable, CaseIterable, Hashable,
+    Identifiable, Sendable
+{
+    case automatic
+    case macOSGNOME
+    case macOSHyprland
+    case linuxPassthrough
+
+    public var id: Self { self }
+
+    public var displayName: String {
+        switch self {
+        case .automatic:
+            "Automatic"
+        case .macOSGNOME:
+            "macOS-style GNOME/Linux"
+        case .macOSHyprland:
+            "macOS-style Hyprland"
+        case .linuxPassthrough:
+            "Linux passthrough"
+        }
+    }
+
+    public func resolved(forMachineNamed name: String) -> Self {
+        guard self == .automatic else {
+            return self
+        }
+        let normalizedName = name.lowercased()
+        return normalizedName.contains("omarchy")
+            || normalizedName.contains("hyprland")
+            ? .macOSHyprland
+            : .macOSGNOME
+    }
+}
+
 public struct MachineSpec: Codable, Hashable, Sendable {
     public var cpuCount: Int
     public var memorySizeBytes: UInt64
@@ -8,6 +43,7 @@ public struct MachineSpec: Codable, Hashable, Sendable {
     public var sharedDirectoryPath: String?
     public var rosettaEnabled: Bool
     public var portForwards: [PortForward]
+    public var inputProfile: MachineInputProfile
 
     public init(
         cpuCount: Int,
@@ -16,7 +52,8 @@ public struct MachineSpec: Codable, Hashable, Sendable {
         architecture: GuestArchitecture,
         sharedDirectoryPath: String? = nil,
         rosettaEnabled: Bool = false,
-        portForwards: [PortForward] = []
+        portForwards: [PortForward] = [],
+        inputProfile: MachineInputProfile = .automatic
     ) {
         self.cpuCount = cpuCount
         self.memorySizeBytes = memorySizeBytes
@@ -25,6 +62,7 @@ public struct MachineSpec: Codable, Hashable, Sendable {
         self.sharedDirectoryPath = sharedDirectoryPath
         self.rosettaEnabled = rosettaEnabled
         self.portForwards = portForwards
+        self.inputProfile = inputProfile
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -35,6 +73,7 @@ public struct MachineSpec: Codable, Hashable, Sendable {
         case sharedDirectoryPath
         case rosettaEnabled
         case portForwards
+        case inputProfile
     }
 
     public init(from decoder: any Decoder) throws {
@@ -64,6 +103,10 @@ public struct MachineSpec: Codable, Hashable, Sendable {
             [PortForward].self,
             forKey: .portForwards
         ) ?? []
+        inputProfile = try container.decodeIfPresent(
+            MachineInputProfile.self,
+            forKey: .inputProfile
+        ) ?? .automatic
     }
 }
 

@@ -23,7 +23,6 @@
               frequency:(gint)frequency;
 - (void)startEngine;
 - (void)scheduleEngineRecoveryAfter:(dispatch_time_t)delay;
-- (void)recoverEngine;
 - (void)appendAudio:(gpointer *)audio size:(gint)size;
 - (void)stop;
 
@@ -196,29 +195,14 @@ static void cs_playback_mute_changed(GObject *object,
             [CSMain.sharedInstance asyncWith:^{
                 CSAudioPlayback *strongSelf = weakSelf;
                 strongSelf.engineRecoveryScheduled = NO;
-                if (strongSelf.wantsPlayback && strongSelf.format) {
-                    [strongSelf recoverEngine];
+                if (strongSelf.wantsPlayback &&
+                    strongSelf.format &&
+                    !strongSelf.engine.isRunning) {
+                    [strongSelf startEngine];
                 }
             }];
         }
     );
-}
-
-- (void)recoverEngine
-{
-    self.isPlaying = NO;
-    [self.player stop];
-    [self.engine prepare];
-    NSError *error = nil;
-    if (![self.engine startAndReturnError:&error]) {
-        g_warning("Could not recover host audio output: %s",
-                  error.localizedDescription.UTF8String);
-        [self scheduleEngineRecoveryAfter:
-            dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)];
-        return;
-    }
-    [self.player play];
-    self.isPlaying = YES;
 }
 
 - (void)appendAudio:(gpointer *)audio size:(gint)size

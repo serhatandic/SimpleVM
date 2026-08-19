@@ -119,6 +119,13 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
         atPath: backendURL.appending(path: "efi-vars.fd").path
     ))
     #expect(configuration.qmpSocketURL.path.utf8.count < 104)
+    #expect(configuration.agentSocketURL?.lastPathComponent.hasSuffix(
+        "-agent.sock"
+    ) == true)
+    #expect(configuration.arguments.contains {
+        $0.contains(configuration.agentSocketURL!.path)
+            && $0.contains("server=on,wait=off")
+    })
 
     let accelerated = try QEMUConfigurationBuilder.make(
         machine: machine,

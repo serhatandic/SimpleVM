@@ -11,6 +11,7 @@ final class QEMUMachineRuntime {
     private(set) var hasDisplay = false
     private(set) var requiresDiskPassword = false
     private(set) var usesAcceleratedDisplay = false
+    let guestTools = GuestToolsCoordinator()
 
     @ObservationIgnored
     private(set) var framebuffer: CGImage?
@@ -138,6 +139,9 @@ final class QEMUMachineRuntime {
                 spice.errorHandler = { [weak self] error in
                     self?.errorHandler?(error)
                 }
+                spice.clipboardNoticeHandler = { [weak self] message in
+                    self?.guestTools.reportNotice(message)
+                }
                 spice.displayResizeSupportHandler = { [weak self] supported in
                     guard let self else { return }
                     guard supported else {
@@ -158,6 +162,30 @@ final class QEMUMachineRuntime {
                 try await spice.connect(to: socketURL)
                 log("SPICE GL connected")
             }
+            if let agentSocketURL = configuration.agentSocketURL {
+                guestTools.statusHandler = { [weak self] status in
+                    guard let self else { return }
+                    self.spiceController?.setClipboardSharingAllowed(
+                        status?.supportsAgentClipboardTransport != true
+                    )
+                    if status?.desktopEnvironment == .hyprland,
+                       let size = self.spiceDisplayView?
+                            .preferredGuestPixelSize {
+                        self.requestDisplaySize(
+                            width: Int(size.width),
+                            height: Int(size.height)
+                        )
+                    }
+                }
+                guestTools.start(
+                    sharedDirectoryConfigured: false
+                ) { request in
+                    try await QEMUGuestAgentTransport.request(
+                        request,
+                        socketURL: agentSocketURL
+                    )
+                }
+            }
             transition(to: .running)
         } catch {
             log("start failed: \(error.localizedDescription)")
@@ -172,6 +200,14 @@ final class QEMUMachineRuntime {
             return
         }
         transition(to: .stopping)
+        if guestTools.supports(.gracefulShutdown) {
+            do {
+                try await guestTools.requestShutdown()
+                return
+            } catch {
+                errorHandler?(error)
+            }
+        }
         vncClient?.errorHandler = nil
         vncClient?.disconnect()
         await processController?.stop()
@@ -189,6 +225,15 @@ final class QEMUMachineRuntime {
         await processController?.forceStop()
         clearRuntime()
         transition(to: .stopped)
+    }
+
+    func requestReboot() async {
+        guard state == .running else { return }
+        do {
+            try await guestTools.requestReboot()
+        } catch {
+            errorHandler?(error)
+        }
     }
 
     func sendKey(_ keysym: UInt32, isDown: Bool) {
@@ -213,6 +258,33 @@ final class QEMUMachineRuntime {
             UInt16(clamping: displaySize.width),
             UInt16(clamping: displaySize.height)
         )
+        if guestTools.state.status?.desktopEnvironment == .hyprland,
+           guestTools.supports(.displayResize) {
+            guard lastRequestedDisplaySize?.0 != requested.0
+                    || lastRequestedDisplaySize?.1 != requested.1 else {
+                return
+            }
+            lastRequestedDisplaySize = requested
+            Task { [weak self] in
+                do {
+                    try await self?.guestTools.requestDisplayResize(
+                        width: Int(requested.0),
+                        height: Int(requested.1)
+                    )
+                } catch {
+                    guard let self else { return }
+                    self.lastRequestedDisplaySize = nil
+                    self.requestBackendDisplaySize(requested)
+                }
+            }
+            return
+        }
+        requestBackendDisplaySize(requested)
+    }
+
+    private func requestBackendDisplaySize(
+        _ requested: (UInt16, UInt16)
+    ) {
         if let spiceController {
             guard spiceController.supportsDisplayResize,
                   let display = spiceController.display else {
@@ -479,6 +551,8 @@ final class QEMUMachineRuntime {
     }
 
     private func clearRuntime() {
+        guestTools.stop()
+        guestTools.statusHandler = nil
         serialMonitorTask?.cancel()
         serialMonitorTask = nil
         serialReadOffset = 0

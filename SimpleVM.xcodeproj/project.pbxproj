@@ -25,6 +25,7 @@
 		4D9938ECE002EE1709AA6262 /* gmodule-2.0.0.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = DE21ECE968D0F962D0195CB0 /* gmodule-2.0.0.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		540F604F448222C219C101FC /* FilePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB18762CB489CBC5B9CAACFE /* FilePicker.swift */; };
 		5697088CB571EF754255C317 /* CocoaSpiceNoUsb in Frameworks */ = {isa = PBXBuildFile; productRef = 793FE81581C6AD27F34E2119 /* CocoaSpiceNoUsb */; };
+		59D099DB2098BAD0D59AA854 /* GuestToolsBundleExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20A34CB0A7B15B7B9D1EC0B8 /* GuestToolsBundleExporter.swift */; };
 		5F8915C5582CD37861B19ACE /* NewMachineView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 985115328A2DBD84F72F7B4C /* NewMachineView.swift */; };
 		648C2BCE43058F50E43CC6DC /* glib-2.0.0.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 2E4EA8BB684DC4CE0C51CCB0 /* glib-2.0.0.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		658ADFE96F5C96B18AB2B905 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F6CF288BE530F5F2AFC2AEC /* RootView.swift */; };
@@ -38,13 +39,16 @@
 		A04BC5D803484483321046C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D3C57FAEE82D92275B30667B /* Assets.xcassets */; };
 		A1D441994B601F267BFD24EE /* AppLifecycleDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F28839F625F13DFFBF555EC /* AppLifecycleDelegate.swift */; };
 		A24AB58487D28B09DD450DCC /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD2FBB02FB71E409A7D821C2 /* LibraryView.swift */; };
+		A2D0D23D29BF9D8C7083E954 /* GuestToolsCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F2E48A4AAC1C6F7815B656E /* GuestToolsCoordinator.swift */; };
 		A59D789DF86E4DB11A121332 /* KeyboardMappingSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = A118B3525D21D3B293C0492A /* KeyboardMappingSettings.swift */; };
 		A84556531E6AA0C83BF90944 /* LoopbackPortAllocator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7EEECC9AF70ED42593B51C7 /* LoopbackPortAllocator.swift */; };
 		AF2DF78A26F795AE3580E341 /* LaunchTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE0DCB98047E5FF0D5E7B40D /* LaunchTests.swift */; };
 		B01AAA137DEC36F98DB948A3 /* SimpleVMCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8B4DA1DDD021526302779E3B /* SimpleVMCore */; };
 		BDB9E93688AB2349F1E1C73B /* SimpleVMCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4431965DBEACBD8427BF0413 /* SimpleVMCore */; };
 		CA35A66CE7597FE74FC55417 /* QEMUMachineRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7584A6E0368D9AA54B787B85 /* QEMUMachineRuntime.swift */; };
+		CC95870D1AD4AE5F95C5E8CF /* GuestTools in Resources */ = {isa = PBXBuildFile; fileRef = F9B11F4E5A09D4CED2A25BEF /* GuestTools */; };
 		E42B12C82D5D53828403D4CE /* ImmersionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 980C0CC18CAC585118FDBC68 /* ImmersionController.swift */; };
+		E4840718E4AAFEF0058C03DC /* GuestAgentSocketTransport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E1A8C634307047236B3D7D8 /* GuestAgentSocketTransport.swift */; };
 		E65C5B0273A8A2DD186DBD72 /* SPICEConnectionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96503BBDA44669BFF9BA596C /* SPICEConnectionController.swift */; };
 		E85D6235650454CD47E7001A /* FoundationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D904C8CFEF1E135E5D9855F /* FoundationTests.swift */; };
 		E8B894E2D7B66328ADF0CFEC /* gio-2.0.0.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 24FD90058EA44DE8C6E30A3A /* gio-2.0.0.framework */; };
@@ -106,17 +110,20 @@
 		192761E63ECE83BF88D5A3B7 /* CocoaSpice */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CocoaSpice; path = Packages/CocoaSpice; sourceTree = SOURCE_ROOT; };
 		196CF9291A01A3300651A1F1 /* SimpleVMApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SimpleVMApp.swift; sourceTree = "<group>"; };
 		1D904C8CFEF1E135E5D9855F /* FoundationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FoundationTests.swift; sourceTree = "<group>"; };
+		1E1A8C634307047236B3D7D8 /* GuestAgentSocketTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuestAgentSocketTransport.swift; sourceTree = "<group>"; };
 		1F28839F625F13DFFBF555EC /* AppLifecycleDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLifecycleDelegate.swift; sourceTree = "<group>"; };
-		24FD90058EA44DE8C6E30A3A /* gio-2.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "gio-2.0.0.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/gio-2.0.0.framework"; sourceTree = "<group>"; };
+		1F2E48A4AAC1C6F7815B656E /* GuestToolsCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuestToolsCoordinator.swift; sourceTree = "<group>"; };
+		20A34CB0A7B15B7B9D1EC0B8 /* GuestToolsBundleExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuestToolsBundleExporter.swift; sourceTree = "<group>"; };
+		24FD90058EA44DE8C6E30A3A /* gio-2.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "gio-2.0.0.framework"; path = "../../../../../../../Applications/UTM.app/Contents/Frameworks/gio-2.0.0.framework"; sourceTree = "<group>"; };
 		267CD823610747CC49B50478 /* QEMUMachineDisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QEMUMachineDisplayView.swift; sourceTree = "<group>"; };
-		2E4EA8BB684DC4CE0C51CCB0 /* glib-2.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "glib-2.0.0.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/glib-2.0.0.framework"; sourceTree = "<group>"; };
+		2E4EA8BB684DC4CE0C51CCB0 /* glib-2.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "glib-2.0.0.framework"; path = "../../../../../../../Applications/UTM.app/Contents/Frameworks/glib-2.0.0.framework"; sourceTree = "<group>"; };
 		5A1CB140D317CF0248162C45 /* MachineDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineDetailView.swift; sourceTree = "<group>"; };
 		6568581FFFE96E82F58328EF /* SPICEMachineDisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SPICEMachineDisplayView.swift; sourceTree = "<group>"; };
-		6E9820C6519C87545CEB5A62 /* spice-client-glib-2.0.8.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "spice-client-glib-2.0.8.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/spice-client-glib-2.0.8.framework"; sourceTree = "<group>"; };
+		6E9820C6519C87545CEB5A62 /* spice-client-glib-2.0.8.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "spice-client-glib-2.0.8.framework"; path = "../../../../../../../Applications/UTM.app/Contents/Frameworks/spice-client-glib-2.0.8.framework"; sourceTree = "<group>"; };
 		746AF525D76C096CB5EBCF74 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		7584A6E0368D9AA54B787B85 /* QEMUMachineRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QEMUMachineRuntime.swift; sourceTree = "<group>"; };
 		7F6CF288BE530F5F2AFC2AEC /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		821A198A1A52724AFFBB089D /* gobject-2.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "gobject-2.0.0.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/gobject-2.0.0.framework"; sourceTree = "<group>"; };
+		821A198A1A52724AFFBB089D /* gobject-2.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "gobject-2.0.0.framework"; path = "../../../../../../../Applications/UTM.app/Contents/Frameworks/gobject-2.0.0.framework"; sourceTree = "<group>"; };
 		86F6149CE1A73CC0B812B1CE /* MachineDisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineDisplayView.swift; sourceTree = "<group>"; };
 		8772888F8FF4E4B68580A3A3 /* SimpleVM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SimpleVM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		96503BBDA44669BFF9BA596C /* SPICEConnectionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SPICEConnectionController.swift; sourceTree = "<group>"; };
@@ -130,17 +137,18 @@
 		B84B5C8E69ADAD9771588F5A /* AppleGuestAgentTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleGuestAgentTransport.swift; sourceTree = "<group>"; };
 		BD2FBB02FB71E409A7D821C2 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		C7EEECC9AF70ED42593B51C7 /* LoopbackPortAllocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopbackPortAllocator.swift; sourceTree = "<group>"; };
-		CAB202727DFBCCBA7B09171D /* gstreamer-1.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "gstreamer-1.0.0.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/gstreamer-1.0.0.framework"; sourceTree = "<group>"; };
-		D1B9214B0414C7A737CBBA59 /* qemu-x86_64-softmmu.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "qemu-x86_64-softmmu.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/qemu-x86_64-softmmu.framework"; sourceTree = "<group>"; };
+		CAB202727DFBCCBA7B09171D /* gstreamer-1.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "gstreamer-1.0.0.framework"; path = "../../../../../../../Applications/UTM.app/Contents/Frameworks/gstreamer-1.0.0.framework"; sourceTree = "<group>"; };
+		D1B9214B0414C7A737CBBA59 /* qemu-x86_64-softmmu.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "qemu-x86_64-softmmu.framework"; path = "../../../../../../../Applications/UTM.app/Contents/Frameworks/qemu-x86_64-softmmu.framework"; sourceTree = "<group>"; };
 		D3C57FAEE82D92275B30667B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D505BA5F4159F9F9F8AA155E /* SimpleVMAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SimpleVMAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D640994605252415E8310D95 /* SimpleVMUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SimpleVMUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D872E56BAD09218EDACF6C1B /* TCPPortForwarder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TCPPortForwarder.swift; sourceTree = "<group>"; };
 		DB18762CB489CBC5B9CAACFE /* FilePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FilePicker.swift; sourceTree = "<group>"; };
-		DE21ECE968D0F962D0195CB0 /* gmodule-2.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "gmodule-2.0.0.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/gmodule-2.0.0.framework"; sourceTree = "<group>"; };
+		DE21ECE968D0F962D0195CB0 /* gmodule-2.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "gmodule-2.0.0.framework"; path = "../../../../../../../Applications/UTM.app/Contents/Frameworks/gmodule-2.0.0.framework"; sourceTree = "<group>"; };
 		E0ADC12DEFE4931F54E578EC /* KarabinerInputBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KarabinerInputBridge.swift; sourceTree = "<group>"; };
 		E5C74D1D84F26328E4E21CA4 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		F654F0BC4E0BE5F292B939D3 /* UTMQEMULauncher */ = {isa = PBXFileReference; includeInIndex = 0; path = UTMQEMULauncher; sourceTree = BUILT_PRODUCTS_DIR; };
+		F9B11F4E5A09D4CED2A25BEF /* GuestTools */ = {isa = PBXFileReference; lastKnownFileType = folder; path = GuestTools; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -254,6 +262,14 @@
 			path = Networking;
 			sourceTree = "<group>";
 		};
+		7ECEABE2E2A0D2940C9EF0CE /* GuestTools */ = {
+			isa = PBXGroup;
+			children = (
+				20A34CB0A7B15B7B9D1EC0B8 /* GuestToolsBundleExporter.swift */,
+			);
+			path = GuestTools;
+			sourceTree = "<group>";
+		};
 		8B22C940DED2906A5BE63CAC /* Display */ = {
 			isa = PBXGroup;
 			children = (
@@ -269,6 +285,8 @@
 			isa = PBXGroup;
 			children = (
 				B84B5C8E69ADAD9771588F5A /* AppleGuestAgentTransport.swift */,
+				1E1A8C634307047236B3D7D8 /* GuestAgentSocketTransport.swift */,
+				1F2E48A4AAC1C6F7815B656E /* GuestToolsCoordinator.swift */,
 				C7EEECC9AF70ED42593B51C7 /* LoopbackPortAllocator.swift */,
 				A51018C6C120FAD79979FC93 /* MachineRuntime.swift */,
 				7584A6E0368D9AA54B787B85 /* QEMUMachineRuntime.swift */,
@@ -288,6 +306,7 @@
 		A55C4126CDA6BDF2CC56A622 = {
 			isa = PBXGroup;
 			children = (
+				F9B11F4E5A09D4CED2A25BEF /* GuestTools */,
 				C643AB1A1F9584BD0F08BE37 /* Packages */,
 				F42FF3EFF274E98119AE349D /* Resources */,
 				DC5EA99895D5099849B09488 /* SimpleVMApp */,
@@ -345,6 +364,7 @@
 				227FE4D072D88E4E77B1FE95 /* Application */,
 				8B22C940DED2906A5BE63CAC /* Display */,
 				3C4F34143BAC484D99CE59C3 /* Features */,
+				7ECEABE2E2A0D2940C9EF0CE /* GuestTools */,
 				E122DAAB01C47BE399A87297 /* Input */,
 				71A5A7330EFC6FD8442193D8 /* Networking */,
 				9BC60EB0B6AD02A2BA3C09E2 /* Virtualization */,
@@ -509,6 +529,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				A04BC5D803484483321046C3 /* Assets.xcassets in Resources */,
+				CC95870D1AD4AE5F95C5E8CF /* GuestTools in Resources */,
 				FDA1CA6F16E63B81D335ECAD /* UTMQEMULauncher in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -572,6 +593,9 @@
 				EFB927F13064A5117DF1E5C9 /* AppleGuestAgentTransport.swift in Sources */,
 				540F604F448222C219C101FC /* FilePicker.swift in Sources */,
 				360FBD2E05C06C166E6A713A /* GStreamerPluginStubs.c in Sources */,
+				E4840718E4AAFEF0058C03DC /* GuestAgentSocketTransport.swift in Sources */,
+				59D099DB2098BAD0D59AA854 /* GuestToolsBundleExporter.swift in Sources */,
+				A2D0D23D29BF9D8C7083E954 /* GuestToolsCoordinator.swift in Sources */,
 				E42B12C82D5D53828403D4CE /* ImmersionController.swift in Sources */,
 				813E606F254FE1337BEBA76D /* ImmersiveInputCapture.swift in Sources */,
 				6B86D7566374617B23B05B88 /* KarabinerInputBridge.swift in Sources */,

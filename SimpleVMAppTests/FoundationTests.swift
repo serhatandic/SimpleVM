@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Security
 import SimpleVMCore
 import Virtualization
@@ -28,9 +29,14 @@ final class FoundationTests: XCTestCase {
         let controller = SPICEConnectionController()
         weak var retainedConnection: AnyObject?
         autoreleasepool {
-            retainedConnection = controller.prepareConnection(
+            let connection = controller.prepareConnection(
                 to: URL(filePath: "/tmp/simplevm-audio-test.sock")
             )
+            XCTAssertTrue(controller.preparedConnectionAudioEnabled)
+            XCTAssertTrue(
+                controller.preparedConnectionHasPasteboardDelegate
+            )
+            retainedConnection = connection
         }
         XCTAssertNotNil(retainedConnection)
 
@@ -96,9 +102,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testMacOSProfileMapsCommandCopyToGuestControlCopy() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
         let chord = settings.chord(
             keyCode: 8,
             modifiers: [.command]
@@ -112,9 +120,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testUnmappedCommandChordUsesGuestSuper() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
         let chord = settings.chord(
             keyCode: 47,
             modifiers: [.command]
@@ -127,15 +137,20 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testWorkspaceSwipeChordsFollowSelectedProfile() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
+        defer { settings.deactivate() }
 
-        settings.preset = .macOS
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
         XCTAssertEqual(
             settings.workspaceChord(direction: .previous),
             GuestChord(keyCode: 116, modifiers: [.command])
         )
-        settings.preset = .hyprland
+        settings.activate(
+            profile: .macOSHyprland,
+            forMachineNamed: "Generic Linux"
+        )
         XCTAssertEqual(
             settings.workspaceChord(direction: .previous),
             GuestChord(keyCode: 48, modifiers: [.command, .shift])
@@ -145,20 +160,21 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testHyprlandWorkspaceSwipeCyclesExplicitWorkspaces() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
         let defaults = UserDefaults.standard
         let previousIndex = defaults.integer(
             forKey: "hyprlandWorkspaceIndex"
         )
         defer {
-            settings.deactivateMachinePreset()
-            settings.preset = previousPreset
+            settings.deactivate()
             defaults.set(
                 previousIndex,
                 forKey: "hyprlandWorkspaceIndex"
             )
         }
-        settings.activatePreset(forMachineNamed: "omarchy")
+        settings.activate(
+            profile: .automatic,
+            forMachineNamed: "omarchy"
+        )
         defaults.set(1, forKey: "hyprlandWorkspaceIndex")
 
         XCTAssertEqual(
@@ -297,9 +313,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testNavigationMappingsIgnoreSystemFunctionFlag() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
         let chord = settings.chord(
             keyCode: 123,
             modifiers: [.command, .function]
@@ -410,9 +428,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testMappedShortcutsEmitModifiersBeforeGuestKeys() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
 
         for (hostKey, expectedKey, expectedModifier, modifierKey) in [
             (UInt16(12), UInt16(118), NSEvent.ModifierFlags.option, UInt16(58)),
@@ -451,9 +471,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testMappedShortcutsResolveToQEMUModifierKeysyms() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
         var events: [GuestKeyEvent] = []
         let router = GuestInputRouter { events.append($0) }
 
@@ -478,13 +500,11 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testOmarchyAutomaticallyUsesHyprlandMappings() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer {
-            settings.deactivateMachinePreset()
-            settings.preset = previousPreset
-        }
-        settings.preset = .macOS
-        settings.activatePreset(forMachineNamed: "omarchy-4.0.0")
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .automatic,
+            forMachineNamed: "omarchy-4.0.0"
+        )
 
         XCTAssertEqual(
             settings.chord(keyCode: 12, modifiers: [.command]),
@@ -501,11 +521,31 @@ final class FoundationTests: XCTestCase {
     }
 
     @MainActor
+    func testExplicitGNOMEProfileOverridesOmarchyDetection() {
+        let settings = KeyboardMappingSettings.shared
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "omarchy-4.0.0"
+        )
+
+        XCTAssertEqual(
+            settings.chord(keyCode: 12, modifiers: [.command]),
+            GuestChord(
+                keyCode: 118,
+                modifiers: [.option, .function]
+            )
+        )
+    }
+
+    @MainActor
     func testOmarchySystemBindingsReachHyprlandUnchanged() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .hyprland
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSHyprland,
+            forMachineNamed: "Generic Linux"
+        )
 
         for (keyCode, hostModifiers, expectedModifiers) in [
             (
@@ -669,7 +709,7 @@ final class FoundationTests: XCTestCase {
         )
         XCTAssertEqual(
             manipulators.count,
-            KeyboardMappingSettings.mappingEntries(for: .macOS).count
+            KeyboardMappingSettings.mappingEntries(for: .gnome).count
         )
         let hyprlandManipulators = try XCTUnwrap(
             KarabinerInputBridge.generatedRule(for: .hyprland)[
@@ -720,14 +760,55 @@ final class FoundationTests: XCTestCase {
     @MainActor
     func testMacOSPointerCommandMapsToGuestControl() {
         let settings = KeyboardMappingSettings.shared
-        let previousPreset = settings.preset
-        defer { settings.preset = previousPreset }
-        settings.preset = .macOS
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
 
         let modifiers = settings.pointerModifiers(from: [.command])
 
         XCTAssertTrue(modifiers.contains(.control))
         XCTAssertFalse(modifiers.contains(.command))
+    }
+
+    @MainActor
+    func testGNOMEProfileMapsCommandQuitToAltF4() {
+        let settings = KeyboardMappingSettings.shared
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .macOSGNOME,
+            forMachineNamed: "Generic Linux"
+        )
+
+        XCTAssertEqual(
+            settings.chord(keyCode: 12, modifiers: [.command]),
+            GuestChord(
+                keyCode: 118,
+                modifiers: [.option, .function]
+            )
+        )
+    }
+
+    @MainActor
+    func testLinuxPassthroughLeavesCommandChordUnchanged() {
+        let settings = KeyboardMappingSettings.shared
+        defer { settings.deactivate() }
+        settings.activate(
+            profile: .linuxPassthrough,
+            forMachineNamed: "Generic Linux"
+        )
+
+        XCTAssertEqual(
+            settings.chord(
+                keyCode: 12,
+                modifiers: [.command, .shift]
+            ),
+            GuestChord(
+                keyCode: 12,
+                modifiers: [.command, .shift]
+            )
+        )
     }
 
     @MainActor
@@ -942,7 +1023,7 @@ final class FoundationTests: XCTestCase {
     }
 
     @MainActor
-    func testCreatesMachineFromPreinstalledDiskWithoutInstaller() async throws {
+    func testPersistsInputProfileAcrossCreationEditingAndCloning() async throws {
         let rootURL = FileManager.default.temporaryDirectory.appending(
             path: UUID().uuidString,
             directoryHint: .isDirectory
@@ -957,9 +1038,8 @@ final class FoundationTests: XCTestCase {
             at: sourceURL,
             capacityBytes: 1 * 1_024 * 1_024
         )
-        let model = AppModel(
-            storageRootURL: rootURL.appending(path: "Library")
-        )
+        let libraryURL = rootURL.appending(path: "Library")
+        let model = AppModel(storageRootURL: libraryURL)
         await model.initialize()
         let imageID = try await model.importImage(
             from: sourceURL,
@@ -972,7 +1052,8 @@ final class FoundationTests: XCTestCase {
             memorySizeBytes: 2 * 1_024 * 1_024 * 1_024,
             diskSizeBytes: 2 * 1_024 * 1_024,
             source: .managedImage(imageID),
-            sharedDirectoryPath: nil
+            sharedDirectoryPath: nil,
+            inputProfile: .macOSHyprland
         )
         let machine = try XCTUnwrap(
             model.machines.first(where: { $0.id == machineID })
@@ -981,6 +1062,29 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(machine.bootMedia, .systemDisk)
         XCTAssertEqual(machine.provisioningState, .ready)
         XCTAssertEqual(machine.disk.capacityBytes, 2 * 1_024 * 1_024)
+        XCTAssertEqual(machine.spec.inputProfile, .macOSHyprland)
+
+        await model.setInputProfile(.linuxPassthrough, for: machine)
+        let updatedMachine = try XCTUnwrap(
+            model.machines.first(where: { $0.id == machineID })
+        )
+        await model.cloneMachine(updatedMachine)
+
+        XCTAssertEqual(model.machines.count, 2)
+        XCTAssertTrue(
+            model.machines.allSatisfy {
+                $0.spec.inputProfile == .linuxPassthrough
+            }
+        )
+
+        let reloadedModel = AppModel(storageRootURL: libraryURL)
+        await reloadedModel.initialize()
+        XCTAssertEqual(reloadedModel.machines.count, 2)
+        XCTAssertTrue(
+            reloadedModel.machines.allSatisfy {
+                $0.spec.inputProfile == .linuxPassthrough
+            }
+        )
     }
 
     @MainActor
@@ -1054,6 +1158,366 @@ final class FoundationTests: XCTestCase {
                 error.localizedDescription,
                 "Stop the machine before performing this action."
             )
+        }
+    }
+
+    @MainActor
+    func testGuestToolsDetectionResolvesOnlyAutomaticProfile() async throws {
+        let coordinator = GuestToolsCoordinator()
+        let unmounted = guestToolsStatus(
+            mountState: .unmounted,
+            capabilities: [.mountSharedDirectory, .displayResize]
+        )
+        let mounted = guestToolsStatus(
+            mountState: .mounted,
+            capabilities: [.mountSharedDirectory, .displayResize]
+        )
+        var statusRequests = 0
+        var mountRequests = 0
+        coordinator.start(sharedDirectoryConfigured: true) { request in
+            switch request {
+            case .status:
+                statusRequests += 1
+                return .status(statusRequests == 1 ? unmounted : mounted)
+            case .mountSharedDirectory:
+                mountRequests += 1
+                return .accepted
+            default:
+                return .failure(
+                    GuestAgentFailure(
+                        code: "unexpected",
+                        message: "Unexpected test request."
+                    )
+                )
+            }
+        }
+        for _ in 0..<100 where coordinator.state.status == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(mountRequests, 1)
+        XCTAssertEqual(coordinator.state.status?.sharedMountStatus.state, .mounted)
+        XCTAssertEqual(
+            coordinator.resolvedInputProfile(
+                configuredProfile: .automatic,
+                machineName: "Generic Linux"
+            ),
+            .macOSHyprland
+        )
+        XCTAssertEqual(
+            coordinator.resolvedInputProfile(
+                configuredProfile: .macOSGNOME,
+                machineName: "Omarchy"
+            ),
+            .macOSGNOME
+        )
+        coordinator.stop()
+    }
+
+    @MainActor
+    func testGuestToolsMountFailurePreservesConnection() async throws {
+        let coordinator = GuestToolsCoordinator()
+        let status = guestToolsStatus(
+            mountState: .unmounted,
+            capabilities: [.mountSharedDirectory, .gracefulShutdown]
+        )
+        coordinator.start(sharedDirectoryConfigured: true) { request in
+            switch request {
+            case .status:
+                return .status(status)
+            case .mountSharedDirectory:
+                return .failure(
+                    GuestAgentFailure(
+                        code: "mountFailed",
+                        message: "fixed mount point is occupied"
+                    )
+                )
+            default:
+                return .failure(
+                    GuestAgentFailure(
+                        code: "unexpected",
+                        message: "Unexpected test request."
+                    )
+                )
+            }
+        }
+        for _ in 0..<100 where coordinator.state.status == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(coordinator.state.status, status)
+        XCTAssertTrue(coordinator.supports(.gracefulShutdown))
+        XCTAssertTrue(
+            coordinator.notice?.contains("could not be mounted") == true
+        )
+        coordinator.stop()
+    }
+
+    @MainActor
+    func testGuestToolsMountTimeoutPreservesConnection() async throws {
+        let coordinator = GuestToolsCoordinator()
+        let status = guestToolsStatus(
+            mountState: .unmounted,
+            capabilities: [.mountSharedDirectory, .gracefulReboot]
+        )
+        coordinator.start(sharedDirectoryConfigured: true) { request in
+            switch request {
+            case .status:
+                return .status(status)
+            case .mountSharedDirectory:
+                throw GuestAgentTransportError.timedOut
+            default:
+                return .failure(
+                    GuestAgentFailure(
+                        code: "unexpected",
+                        message: "Unexpected test request."
+                    )
+                )
+            }
+        }
+        for _ in 0..<100 where coordinator.state.status == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        XCTAssertEqual(coordinator.state.status, status)
+        XCTAssertTrue(coordinator.supports(.gracefulReboot))
+        XCTAssertTrue(
+            coordinator.notice?.contains("could not be mounted") == true
+        )
+        coordinator.stop()
+    }
+
+    func testClipboardLoopGuardSuppressesEchoes() {
+        var guardState = ClipboardLoopGuard()
+        XCTAssertTrue(guardState.shouldSendToGuest("host"))
+        XCTAssertFalse(guardState.shouldApplyFromGuest("host"))
+        XCTAssertTrue(guardState.shouldApplyFromGuest("guest"))
+        XCTAssertFalse(guardState.shouldAnnounceHostChange("guest"))
+        XCTAssertTrue(guardState.shouldAnnounceHostChange("new host"))
+        XCTAssertTrue(guardState.shouldSendToGuest("guest"))
+        XCTAssertFalse(guardState.shouldApplyFromGuest("guest"))
+    }
+
+    func testClipboardLoopGuardAllowsGuestTextAfterDistinctHostWrite() {
+        var guardState = ClipboardLoopGuard()
+        XCTAssertTrue(guardState.shouldApplyFromGuest("guest"))
+        XCTAssertTrue(guardState.canSendToGuest("host"))
+        guardState.markSentToGuest("host")
+        XCTAssertTrue(guardState.shouldApplyFromGuest("guest"))
+    }
+
+    func testAgentClipboardRoutingRequiresBothWaylandCapabilities() {
+        let partial = guestToolsStatus(
+            capabilities: [.clipboardRead],
+            sessionType: .wayland
+        )
+        let complete = guestToolsStatus(
+            capabilities: [.clipboardRead, .clipboardWrite],
+            sessionType: .wayland
+        )
+        let x11 = guestToolsStatus(
+            capabilities: [.clipboardRead, .clipboardWrite],
+            sessionType: .x11
+        )
+
+        XCTAssertFalse(partial.supportsAgentClipboardTransport)
+        XCTAssertTrue(complete.supportsAgentClipboardTransport)
+        XCTAssertFalse(x11.supportsAgentClipboardTransport)
+    }
+
+    func testGuestToolsBundleExportsAndAtomicallyReplacesArchive() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let sourceURL = directory.appending(
+            path: "GuestTools",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: sourceURL,
+            withIntermediateDirectories: true
+        )
+        try Data("#!/bin/sh\n".utf8).write(
+            to: sourceURL.appending(path: "install.sh")
+        )
+        let shareURL = directory.appending(
+            path: "share",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: shareURL,
+            withIntermediateDirectories: true
+        )
+        let exporter = GuestToolsBundleExporter(sourceURL: sourceURL)
+
+        let archiveURL = try exporter.copyToSharedDirectory(shareURL)
+        let firstArchive = try Data(contentsOf: archiveURL)
+        XCTAssertFalse(firstArchive.isEmpty)
+        try Data("#!/bin/sh\necho updated\n".utf8).write(
+            to: sourceURL.appending(path: "install.sh")
+        )
+        XCTAssertEqual(
+            try exporter.copyToSharedDirectory(shareURL),
+            archiveURL
+        )
+        let updatedArchive = try Data(contentsOf: archiveURL)
+        XCTAssertNotEqual(updatedArchive, firstArchive)
+        XCTAssertEqual(
+            try exporter.copyToSharedDirectory(shareURL),
+            archiveURL
+        )
+        XCTAssertEqual(try Data(contentsOf: archiveURL), updatedArchive)
+
+        let list = Process()
+        list.executableURL = URL(filePath: "/usr/bin/tar")
+        list.arguments = ["-tzf", archiveURL.path]
+        let output = Pipe()
+        list.standardOutput = output
+        try list.run()
+        list.waitUntilExit()
+        XCTAssertEqual(list.terminationStatus, 0)
+        let contents = String(
+            data: output.fileHandleForReading.readDataToEndOfFile(),
+            encoding: .utf8
+        )
+        XCTAssertTrue(contents?.contains("GuestTools/install.sh") == true)
+    }
+
+    func testGuestAgentSocketTransportRoundTripAndTimeout() async throws {
+        var descriptors: [Int32] = [0, 0]
+        XCTAssertEqual(
+            socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors),
+            0
+        )
+        let client = descriptors[0]
+        let server = descriptors[1]
+        let status = guestToolsStatus(
+            mountState: .mounted,
+            capabilities: [.gracefulShutdown]
+        )
+        let serverTask = Task.detached {
+            defer { Darwin.close(server) }
+            let handle = FileHandle(
+                fileDescriptor: server,
+                closeOnDealloc: false
+            )
+            let header = try handle.read(upToCount: 4) ?? Data()
+            let length = header.reduce(UInt32(0)) {
+                ($0 << 8) | UInt32($1)
+            }
+            let payload = try handle.read(upToCount: Int(length)) ?? Data()
+            var requestFrame = header
+            requestFrame.append(payload)
+            let request = try GuestAgentFrameCodec.decode(
+                GuestAgentRequestEnvelope.self,
+                from: requestFrame
+            )
+            let response = try GuestAgentFrameCodec.encode(
+                GuestAgentResponseEnvelope(
+                    requestID: request.requestID,
+                    response: .status(status)
+                )
+            )
+            try handle.write(contentsOf: response.prefix(2))
+            try handle.write(contentsOf: response.dropFirst(2))
+        }
+        let response = try await GuestAgentSocketTransport.request(
+            .status,
+            timeout: 1
+        ) {
+            client
+        }
+        guard case .status(let received) = response else {
+            XCTFail("Expected status response.")
+            return
+        }
+        XCTAssertEqual(received.hostname, "guest")
+        _ = try await serverTask.value
+
+        var timeoutDescriptors: [Int32] = [0, 0]
+        XCTAssertEqual(
+            socketpair(AF_UNIX, SOCK_STREAM, 0, &timeoutDescriptors),
+            0
+        )
+        let timeoutClient = timeoutDescriptors[0]
+        let timeoutServer = timeoutDescriptors[1]
+        defer { Darwin.close(timeoutServer) }
+        do {
+            _ = try await GuestAgentSocketTransport.request(
+                .status,
+                timeout: 0.05
+            ) {
+                timeoutClient
+            }
+            XCTFail("Expected a timeout.")
+        } catch GuestAgentTransportError.timedOut {
+            // Expected.
+        }
+    }
+
+    func testGuestAgentSocketTransportRejectsMismatchedIDs() async throws {
+        var descriptors: [Int32] = [0, 0]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+        let client = descriptors[0]
+        let server = descriptors[1]
+        let serverTask = Task.detached {
+            defer { Darwin.close(server) }
+            let handle = FileHandle(
+                fileDescriptor: server,
+                closeOnDealloc: false
+            )
+            let header = try handle.read(upToCount: 4) ?? Data()
+            let length = header.reduce(UInt32(0)) {
+                ($0 << 8) | UInt32($1)
+            }
+            _ = try handle.read(upToCount: Int(length))
+            let response = try GuestAgentFrameCodec.encode(
+                GuestAgentResponseEnvelope(
+                    requestID: "not-the-request-id",
+                    response: .accepted
+                )
+            )
+            try handle.write(contentsOf: response)
+        }
+
+        do {
+            _ = try await GuestAgentSocketTransport.request(
+                .status,
+                timeout: 1
+            ) {
+                client
+            }
+            XCTFail("Expected a mismatched request ID.")
+        } catch GuestAgentProtocolError.mismatchedRequestID {
+            // Expected.
+        }
+        _ = try await serverTask.value
+    }
+
+    func testGuestAgentSocketTransportCancelsPendingRead() async throws {
+        var descriptors: [Int32] = [0, 0]
+        XCTAssertEqual(socketpair(AF_UNIX, SOCK_STREAM, 0, &descriptors), 0)
+        let client = descriptors[0]
+        let server = descriptors[1]
+        defer { Darwin.close(server) }
+        let requestTask = Task {
+            try await GuestAgentSocketTransport.request(
+                .status,
+                timeout: 10
+            ) {
+                client
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        requestTask.cancel()
+        do {
+            _ = try await requestTask.value
+            XCTFail("Expected cancellation.")
+        } catch is CancellationError {
+            // Expected.
         }
     }
 
@@ -1238,6 +1702,26 @@ final class FoundationTests: XCTestCase {
             return nil
         }
         return path
+    }
+
+    private func guestToolsStatus(
+        mountState: GuestSharedMountState = .unmounted,
+        capabilities: Set<GuestAgentCapability>,
+        sessionType: GuestSessionType = .wayland
+    ) -> GuestAgentStatus {
+        GuestAgentStatus(
+            protocolVersion: GuestAgentProtocol.currentVersion,
+            agentVersion: "2.0.0",
+            hostname: "guest",
+            ipAddresses: [],
+            operatingSystem: "Linux",
+            distroID: "arch",
+            distroVersion: "rolling",
+            desktopEnvironment: .hyprland,
+            sessionType: sessionType,
+            capabilities: capabilities,
+            sharedMountStatus: GuestSharedMountStatus(state: mountState)
+        )
     }
 
 }
