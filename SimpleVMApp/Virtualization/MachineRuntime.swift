@@ -5,16 +5,8 @@ import Virtualization
 
 @MainActor
 @Observable
-final class MachineRuntime {
-    private(set) var state: MachineRuntimeState
+final class MachineRuntime: MachineRuntimeBase {
     private(set) var virtualMachine: VZVirtualMachine?
-    let guestTools = GuestToolsCoordinator()
-
-    @ObservationIgnored
-    var stateHandler: ((MachineRuntimeState) -> Void)?
-
-    @ObservationIgnored
-    var errorHandler: ((any Error) -> Void)?
 
     @ObservationIgnored
     private var virtualMachineDelegate: VirtualMachineDelegate?
@@ -33,15 +25,6 @@ final class MachineRuntime {
 
     @ObservationIgnored
     private var lastRequestedDisplaySize: (Int, Int)?
-
-    init(state: MachineRuntimeState = .stopped) {
-        switch state {
-        case .running, .starting, .stopping:
-            self.state = .stopped
-        default:
-            self.state = state
-        }
-    }
 
     func start(
         configuration: VZVirtualMachineConfiguration,
@@ -114,15 +97,6 @@ final class MachineRuntime {
                state == .running {
                 errorHandler?(error)
             }
-        }
-    }
-
-    func requestReboot() async {
-        guard state == .running else { return }
-        do {
-            try await guestTools.requestReboot()
-        } catch {
-            errorHandler?(error)
         }
     }
 
@@ -306,11 +280,6 @@ final class MachineRuntime {
         transition(to: state)
     }
 
-    private func transition(to state: MachineRuntimeState) {
-        self.state = state
-        stateHandler?(state)
-    }
-
     private func clearVirtualMachine() {
         guestTools.stop()
         pressedModifierKeyCodes.removeAll()
@@ -354,17 +323,6 @@ private final class VirtualMachineDelegate: NSObject, VZVirtualMachineDelegate {
         let handler = handler
         Task { @MainActor in
             handler(.stopped)
-        }
-    }
-}
-
-private extension MachineRuntimeState {
-    var canStart: Bool {
-        switch self {
-        case .stopped, .failed:
-            true
-        case .starting, .running, .stopping:
-            false
         }
     }
 }

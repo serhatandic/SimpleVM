@@ -126,6 +126,15 @@ public enum MachineRuntimeState: Codable, Hashable, Sendable {
     case running
     case stopping
     case failed(message: String)
+
+    public var canStart: Bool {
+        switch self {
+        case .stopped, .failed:
+            true
+        case .starting, .running, .stopping:
+            false
+        }
+    }
 }
 
 public enum BootMedia: Codable, Hashable, Sendable {

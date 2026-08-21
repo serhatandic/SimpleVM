@@ -939,7 +939,7 @@ final class FoundationTests: XCTestCase {
             )
         )
         await model.initialize()
-        let imageID = try await model.importISO(
+        let imageID = try await model.library.importISO(
             from: sourceURL,
             architecture: .arm64
         )
@@ -1011,7 +1011,7 @@ final class FoundationTests: XCTestCase {
         let model = AppModel(storageRootURL: rootURL)
         await model.initialize()
 
-        guard case .failed = try XCTUnwrap(model.images.first).availability else {
+        guard case .failed = try XCTUnwrap(model.library.images.first).availability else {
             XCTFail("Interrupted image was not marked failed.")
             return
         }
@@ -1020,6 +1020,76 @@ final class FoundationTests: XCTestCase {
             XCTFail("Interrupted machine was not reconciled.")
             return
         }
+    }
+
+    @MainActor
+    func testFailedInitializationDoesNotPublishOrOverwriteStores() async throws {
+        let rootURL = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        let layout = StorageLayout(rootURL: rootURL)
+        try layout.initialize()
+        defer {
+            chmod(layout.imagesURL.path, 0o700)
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let image = MachineImage(
+            name: "Preserved",
+            architecture: .arm64,
+            artifactKind: .installerISO,
+            origin: .localImport(originalFileName: "preserved.iso"),
+            availability: .available(
+                relativePath: "Images/preserved/artifact.iso"
+            )
+        )
+        let machine = Machine(
+            name: "Preserved",
+            spec: MachineSpec(
+                cpuCount: 2,
+                memorySizeBytes: 2 * 1_024 * 1_024 * 1_024,
+                diskSizeBytes: 8 * 1_024 * 1_024 * 1_024,
+                architecture: .arm64
+            ),
+            sourceImageID: image.id,
+            disk: MachineDisk(
+                relativePath: "Machines/preserved/disk.raw",
+                capacityBytes: 8 * 1_024 * 1_024 * 1_024
+            ),
+            provisioningState: .ready,
+            bootMedia: .systemDisk,
+            backend: .appleVirtualization,
+            backendState: BackendStateReference(
+                relativeDirectory: "Machines/preserved/Apple"
+            )
+        )
+        let snapshot = LibrarySnapshot(
+            machines: [machine],
+            images: [image]
+        )
+        let store = LibraryStore(layout: layout)
+        try await store.save(snapshot)
+        let persistedSnapshot = try await store.load()
+        XCTAssertEqual(chmod(layout.imagesURL.path, 0), 0)
+
+        let model = AppModel(storageRootURL: rootURL)
+        await model.initialize()
+
+        XCTAssertNil(model.storageURL)
+        XCTAssertTrue(model.machines.isEmpty)
+        XCTAssertTrue(model.library.images.isEmpty)
+        XCTAssertNotNil(model.errorMessage)
+        let unchangedSnapshot = try await store.load()
+        XCTAssertEqual(unchangedSnapshot, persistedSnapshot)
+
+        XCTAssertEqual(chmod(layout.imagesURL.path, 0o700), 0)
+        await model.initialize()
+
+        XCTAssertEqual(model.machines.map(\.id), [machine.id])
+        XCTAssertEqual(model.library.images.map(\.id), [image.id])
+        let restoredSnapshot = try await store.load()
+        XCTAssertEqual(restoredSnapshot, persistedSnapshot)
     }
 
     @MainActor
@@ -1041,7 +1111,7 @@ final class FoundationTests: XCTestCase {
         let libraryURL = rootURL.appending(path: "Library")
         let model = AppModel(storageRootURL: libraryURL)
         await model.initialize()
-        let imageID = try await model.importImage(
+        let imageID = try await model.library.importImage(
             from: sourceURL,
             architecture: .arm64,
             artifactKind: .preinstalledDisk
@@ -1107,16 +1177,16 @@ final class FoundationTests: XCTestCase {
             storageRootURL: rootURL.appending(path: "Library")
         )
         await model.initialize()
-        let imageID = try await model.importImage(
+        let imageID = try await model.library.importImage(
             from: sourceURL,
             architecture: .arm64,
             artifactKind: .preinstalledDisk
         )
         let image = try XCTUnwrap(
-            model.images.first(where: { $0.id == imageID })
+            model.library.images.first(where: { $0.id == imageID })
         )
         let imageExportURL = rootURL.appending(path: "image-export.raw")
-        try await model.exportImage(image, to: imageExportURL)
+        try await model.library.exportImage(image, to: imageExportURL)
         XCTAssertEqual(
             try FileSHA256.digest(of: imageExportURL),
             image.sha256
@@ -1289,12 +1359,14 @@ final class FoundationTests: XCTestCase {
 
     func testClipboardLoopGuardSuppressesEchoes() {
         var guardState = ClipboardLoopGuard()
-        XCTAssertTrue(guardState.shouldSendToGuest("host"))
+        XCTAssertTrue(guardState.canSendToGuest("host"))
+        guardState.markSentToGuest("host")
         XCTAssertFalse(guardState.shouldApplyFromGuest("host"))
         XCTAssertTrue(guardState.shouldApplyFromGuest("guest"))
         XCTAssertFalse(guardState.shouldAnnounceHostChange("guest"))
         XCTAssertTrue(guardState.shouldAnnounceHostChange("new host"))
-        XCTAssertTrue(guardState.shouldSendToGuest("guest"))
+        guardState.markSentToGuest("guest")
+        XCTAssertFalse(guardState.canSendToGuest("guest"))
         XCTAssertFalse(guardState.shouldApplyFromGuest("guest"))
     }
 
@@ -1442,7 +1514,7 @@ final class FoundationTests: XCTestCase {
             storageRootURL: rootURL.appending(path: "Library")
         )
         await model.initialize()
-        let imageID = try await model.importImage(
+        let imageID = try await model.library.importImage(
             from: sourceURL,
             architecture: .x86_64,
             artifactKind: .preinstalledDisk

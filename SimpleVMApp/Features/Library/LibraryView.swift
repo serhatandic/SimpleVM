@@ -11,7 +11,7 @@ struct LibraryView: View {
 
     var body: some View {
         Group {
-            if model.images.isEmpty {
+            if model.library.images.isEmpty {
                 ContentUnavailableView {
                     Label("No Images", systemImage: "opticaldiscdrive")
                 } description: {
@@ -62,7 +62,7 @@ struct LibraryView: View {
                 onImport: { architecture in
                     Task {
                         do {
-                            _ = try await model.importImage(
+                            _ = try await model.library.importImage(
                                 from: pendingImport.url,
                                 architecture: architecture,
                                 artifactKind: pendingImport.artifactKind
@@ -87,7 +87,7 @@ struct LibraryView: View {
             if let image = confirmsRemoval {
                 Button("Delete Image", role: .destructive) {
                     Task {
-                        await model.removeImage(image)
+                        await model.library.removeImage(image)
                     }
                     confirmsRemoval = nil
                 }
@@ -98,7 +98,7 @@ struct LibraryView: View {
     }
 
     private var imageTable: some View {
-        Table(model.images) {
+        Table(model.library.images) {
             TableColumn("Name") { image in
                 VStack(alignment: .leading) {
                     Text(image.name)
@@ -125,19 +125,19 @@ struct LibraryView: View {
                 Menu {
                     if case .downloading = image.availability {
                         Button("Cancel Download") {
-                            model.cancelDownload(imageID: image.id)
+                            model.library.cancelDownload(imageID: image.id)
                         }
                     }
                     if case .failed = image.availability {
                         Button("Retry Download") {
                             Task {
-                                await model.retryDownload(image)
+                                await model.library.retryDownload(image)
                             }
                         }
                     }
                     if case .available = image.availability,
                        image.suggestedExportFileName != nil {
-                        if model.exportingImageIDs.contains(image.id) {
+                        if model.library.exportingImageIDs.contains(image.id) {
                             Label(
                                 "Exporting...",
                                 systemImage: "progress.indicator"
@@ -156,7 +156,7 @@ struct LibraryView: View {
                     Button("Delete", role: .destructive) {
                         confirmsRemoval = image
                     }
-                    .disabled(model.exportingImageIDs.contains(image.id))
+                    .disabled(model.library.exportingImageIDs.contains(image.id))
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
@@ -169,9 +169,9 @@ struct LibraryView: View {
 
     private var catalogMenu: some View {
         Menu {
-            ForEach(model.catalog) { entry in
+            ForEach(model.library.catalog) { entry in
                 Button {
-                    model.download(entry)
+                    model.library.download(entry)
                 } label: {
                     Text("\(entry.name) \(entry.version ?? "")")
                 }
@@ -179,7 +179,7 @@ struct LibraryView: View {
         } label: {
             Label("Download", systemImage: "arrow.down.circle")
         }
-        .disabled(model.catalog.isEmpty)
+        .disabled(model.library.catalog.isEmpty)
     }
 
     private var removalBinding: Binding<Bool> {
@@ -195,7 +195,7 @@ struct LibraryView: View {
 
     private func handleISO(_ url: URL) {
         Task {
-            let detection = try? await model.detectArchitecture(at: url)
+            let detection = try? await model.library.detectArchitecture(at: url)
             pendingImport = PendingISOImport(
                 url: url,
                 detection: detection ?? .unknown,
@@ -259,7 +259,7 @@ struct LibraryView: View {
         }
         Task {
             do {
-                try await model.exportImage(
+                try await model.library.exportImage(
                     image,
                     to: destinationURL
                 )
@@ -396,7 +396,7 @@ private struct OCIImportView: View {
                 Button("Add") {
                     Task {
                         do {
-                            _ = try await model.addOCIReference(
+                            _ = try await model.library.addOCIReference(
                                 reference,
                                 architecture: architecture
                             )

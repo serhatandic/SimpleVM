@@ -121,7 +121,7 @@ extension GuestAgentRequest: Codable {
         case resizeDisplay
     }
 
-    private struct LegacyHello: Codable {
+    private struct LegacyHello: Decodable {
         let protocolVersion: Int
     }
 
@@ -159,14 +159,10 @@ extension GuestAgentRequest: Codable {
                     height: try container.decode(Int.self, forKey: .height)
                 )
             }
-            return
-        }
-
-        if container.contains(.hello) {
-            let hello = try container.decode(
-                LegacyHello.self,
-                forKey: .hello
-            )
+        } else if let hello = try container.decodeIfPresent(
+            LegacyHello.self,
+            forKey: .hello
+        ) {
             self = .hello(protocolVersion: hello.protocolVersion)
         } else if container.contains(.status) {
             self = .status
@@ -274,31 +270,6 @@ public struct GuestAgentStatus: Codable, Equatable, Sendable {
         self.sharedMountStatus = sharedMountStatus
     }
 
-    public init(
-        protocolVersion: Int,
-        hostname: String,
-        ipAddresses: [String],
-        operatingSystem: String,
-        sharedDirectories: [String]
-    ) {
-        self.init(
-            protocolVersion: protocolVersion,
-            agentVersion: "unknown",
-            hostname: hostname,
-            ipAddresses: ipAddresses,
-            operatingSystem: operatingSystem,
-            distroID: "unknown",
-            distroVersion: "unknown",
-            desktopEnvironment: .other,
-            sessionType: .other,
-            capabilities: [],
-            sharedMountStatus: GuestSharedMountStatus(
-                state: sharedDirectories.isEmpty ? .unmounted : .mounted,
-                message: sharedDirectories.first
-            )
-        )
-    }
-
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         protocolVersion = try container.decode(
@@ -346,13 +317,13 @@ public struct GuestAgentStatus: Codable, Equatable, Sendable {
         ) {
             sharedMountStatus = status
         } else {
-            let directories = try container.decodeIfPresent(
+            let path = try container.decodeIfPresent(
                 [String].self,
                 forKey: .sharedDirectories
-            ) ?? []
+            )?.first
             sharedMountStatus = GuestSharedMountStatus(
-                state: directories.isEmpty ? .unmounted : .mounted,
-                message: directories.first
+                state: path == nil ? .unmounted : .mounted,
+                message: path
             )
         }
     }
@@ -415,11 +386,11 @@ extension GuestAgentResponse: Codable {
         case failure
     }
 
-    private struct LegacyHello: Codable {
+    private struct LegacyHello: Decodable {
         let protocolVersion: Int
     }
 
-    private struct LegacyFailure: Codable {
+    private struct LegacyFailure: Decodable {
         let message: String
     }
 
@@ -471,14 +442,10 @@ extension GuestAgentResponse: Codable {
                     )
                 )
             }
-            return
-        }
-
-        if container.contains(.hello) {
-            let hello = try container.decode(
-                LegacyHello.self,
-                forKey: .hello
-            )
+        } else if let hello = try container.decodeIfPresent(
+            LegacyHello.self,
+            forKey: .hello
+        ) {
             self = .hello(protocolVersion: hello.protocolVersion)
         } else if container.contains(.status) {
             self = .status(
@@ -486,11 +453,10 @@ extension GuestAgentResponse: Codable {
             )
         } else if container.contains(.accepted) {
             self = .accepted
-        } else if container.contains(.failure) {
-            let failure = try container.decode(
-                LegacyFailure.self,
-                forKey: .failure
-            )
+        } else if let failure = try container.decodeIfPresent(
+            LegacyFailure.self,
+            forKey: .failure
+        ) {
             self = .failure(
                 GuestAgentFailure(
                     code: "legacyFailure",

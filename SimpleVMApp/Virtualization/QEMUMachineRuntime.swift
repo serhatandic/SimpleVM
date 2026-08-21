@@ -6,12 +6,10 @@ import SimpleVMCore
 
 @MainActor
 @Observable
-final class QEMUMachineRuntime {
-    private(set) var state: MachineRuntimeState
+final class QEMUMachineRuntime: MachineRuntimeBase {
     private(set) var hasDisplay = false
     private(set) var requiresDiskPassword = false
     private(set) var usesAcceleratedDisplay = false
-    let guestTools = GuestToolsCoordinator()
 
     @ObservationIgnored
     private(set) var framebuffer: CGImage?
@@ -24,12 +22,6 @@ final class QEMUMachineRuntime {
 
     @ObservationIgnored
     private(set) var spiceController: SPICEConnectionController?
-
-    @ObservationIgnored
-    var stateHandler: ((MachineRuntimeState) -> Void)?
-
-    @ObservationIgnored
-    var errorHandler: ((any Error) -> Void)?
 
     @ObservationIgnored
     private var processController: QEMUProcessController?
@@ -60,15 +52,6 @@ final class QEMUMachineRuntime {
 
     @ObservationIgnored
     private var pressedModifierKeyCodes: Set<UInt16> = []
-
-    init(state: MachineRuntimeState = .stopped) {
-        switch state {
-        case .running, .starting, .stopping:
-            self.state = .stopped
-        default:
-            self.state = state
-        }
-    }
 
     func start(
         machine: Machine,
@@ -226,15 +209,6 @@ final class QEMUMachineRuntime {
         await processController?.forceStop()
         clearRuntime()
         transition(to: .stopped)
-    }
-
-    func requestReboot() async {
-        guard state == .running else { return }
-        do {
-            try await guestTools.requestReboot()
-        } catch {
-            errorHandler?(error)
-        }
     }
 
     func sendKey(_ keysym: UInt32, isDown: Bool) {
@@ -492,11 +466,6 @@ final class QEMUMachineRuntime {
         throw lastError ?? QEMUVNCError.unavailable
     }
 
-    private func transition(to state: MachineRuntimeState) {
-        self.state = state
-        stateHandler?(state)
-    }
-
     private func log(_ message: String) {
         guard let diagnosticURL else { return }
         let line = "\(Date().ISO8601Format()) \(message)\n"
@@ -637,16 +606,5 @@ private enum QEMUVNCError: LocalizedError {
 
     var errorDescription: String? {
         "QEMU started but its display did not become available."
-    }
-}
-
-private extension MachineRuntimeState {
-    var canStart: Bool {
-        switch self {
-        case .stopped, .failed:
-            true
-        case .starting, .running, .stopping:
-            false
-        }
     }
 }

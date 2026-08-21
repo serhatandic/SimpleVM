@@ -16,10 +16,12 @@
 		2575262E16F9D1E22F79B878 /* gmodule-2.0.0.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = DE21ECE968D0F962D0195CB0 /* gmodule-2.0.0.framework */; };
 		298A3DDD97B053607FBD3645 /* qemu-x86_64-softmmu.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D1B9214B0414C7A737CBBA59 /* qemu-x86_64-softmmu.framework */; };
 		30F7E88C65EEB86F5920F139 /* gstreamer-1.0.0.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = CAB202727DFBCCBA7B09171D /* gstreamer-1.0.0.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		335676BD037D30EB803EBCA2 /* MachineRuntimeBase.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDAE1132B8210DF19C6E79C5 /* MachineRuntimeBase.swift */; };
 		360FBD2E05C06C166E6A713A /* GStreamerPluginStubs.c in Sources */ = {isa = PBXBuildFile; fileRef = 11FDB6FCED4AAABE1E437746 /* GStreamerPluginStubs.c */; };
 		3C1E9AA994561003422080B8 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 746AF525D76C096CB5EBCF74 /* SettingsView.swift */; };
 		3C4541A3B7F8A3200C22824B /* gobject-2.0.0.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 821A198A1A52724AFFBB089D /* gobject-2.0.0.framework */; };
 		3E7173A21AB2E6C3EC578B23 /* gobject-2.0.0.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = 821A198A1A52724AFFBB089D /* gobject-2.0.0.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		3EABC87029E42D58A9AED74D /* ImageLibraryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F0C59B62E6955C4F3E57F27 /* ImageLibraryModel.swift */; };
 		47025215E00B48120D9A9380 /* glib-2.0.0.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 2E4EA8BB684DC4CE0C51CCB0 /* glib-2.0.0.framework */; };
 		4AF129F41B1E019B4B2F193C /* gstreamer-1.0.0.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CAB202727DFBCCBA7B09171D /* gstreamer-1.0.0.framework */; };
 		4D9938ECE002EE1709AA6262 /* gmodule-2.0.0.framework in Embed Frameworks */ = {isa = PBXBuildFile; fileRef = DE21ECE968D0F962D0195CB0 /* gmodule-2.0.0.framework */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
@@ -36,6 +38,7 @@
 		7E411FE748C58D183A072BC1 /* MachineDisplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 86F6149CE1A73CC0B812B1CE /* MachineDisplayView.swift */; };
 		7E88D0C59A465FCC3923B464 /* spice-client-glib-2.0.8.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6E9820C6519C87545CEB5A62 /* spice-client-glib-2.0.8.framework */; };
 		813E606F254FE1337BEBA76D /* ImmersiveInputCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0978157F9E13C59E91E0BF2F /* ImmersiveInputCapture.swift */; };
+		97FD7D95220DE1D86CE1F6CF /* GuestToolsPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D33D8D0C05EE529216685088 /* GuestToolsPanel.swift */; };
 		A04BC5D803484483321046C3 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = D3C57FAEE82D92275B30667B /* Assets.xcassets */; };
 		A1D441994B601F267BFD24EE /* AppLifecycleDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F28839F625F13DFFBF555EC /* AppLifecycleDelegate.swift */; };
 		A24AB58487D28B09DD450DCC /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BD2FBB02FB71E409A7D821C2 /* LibraryView.swift */; };
@@ -118,6 +121,7 @@
 		267CD823610747CC49B50478 /* QEMUMachineDisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QEMUMachineDisplayView.swift; sourceTree = "<group>"; };
 		2E4EA8BB684DC4CE0C51CCB0 /* glib-2.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "glib-2.0.0.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/glib-2.0.0.framework"; sourceTree = "<group>"; };
 		5A1CB140D317CF0248162C45 /* MachineDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineDetailView.swift; sourceTree = "<group>"; };
+		5F0C59B62E6955C4F3E57F27 /* ImageLibraryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageLibraryModel.swift; sourceTree = "<group>"; };
 		6568581FFFE96E82F58328EF /* SPICEMachineDisplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SPICEMachineDisplayView.swift; sourceTree = "<group>"; };
 		6E9820C6519C87545CEB5A62 /* spice-client-glib-2.0.8.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "spice-client-glib-2.0.8.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/spice-client-glib-2.0.8.framework"; sourceTree = "<group>"; };
 		746AF525D76C096CB5EBCF74 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -136,9 +140,11 @@
 		AE17FB588BAFBDE890297ECF /* SidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarView.swift; sourceTree = "<group>"; };
 		B84B5C8E69ADAD9771588F5A /* AppleGuestAgentTransport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppleGuestAgentTransport.swift; sourceTree = "<group>"; };
 		BD2FBB02FB71E409A7D821C2 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		BDAE1132B8210DF19C6E79C5 /* MachineRuntimeBase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MachineRuntimeBase.swift; sourceTree = "<group>"; };
 		C7EEECC9AF70ED42593B51C7 /* LoopbackPortAllocator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoopbackPortAllocator.swift; sourceTree = "<group>"; };
 		CAB202727DFBCCBA7B09171D /* gstreamer-1.0.0.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "gstreamer-1.0.0.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/gstreamer-1.0.0.framework"; sourceTree = "<group>"; };
 		D1B9214B0414C7A737CBBA59 /* qemu-x86_64-softmmu.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = "qemu-x86_64-softmmu.framework"; path = "../../../../../Applications/UTM.app/Contents/Frameworks/qemu-x86_64-softmmu.framework"; sourceTree = "<group>"; };
+		D33D8D0C05EE529216685088 /* GuestToolsPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GuestToolsPanel.swift; sourceTree = "<group>"; };
 		D3C57FAEE82D92275B30667B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D505BA5F4159F9F9F8AA155E /* SimpleVMAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SimpleVMAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		D640994605252415E8310D95 /* SimpleVMUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SimpleVMUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -208,6 +214,7 @@
 		10976146E74EBD19D9BEB061 /* Machines */ = {
 			isa = PBXGroup;
 			children = (
+				D33D8D0C05EE529216685088 /* GuestToolsPanel.swift */,
 				5A1CB140D317CF0248162C45 /* MachineDetailView.swift */,
 				A4508913A70A87CB5FF6A730 /* MachineEmptyView.swift */,
 				985115328A2DBD84F72F7B4C /* NewMachineView.swift */,
@@ -222,6 +229,7 @@
 				1F28839F625F13DFFBF555EC /* AppLifecycleDelegate.swift */,
 				E5C74D1D84F26328E4E21CA4 /* AppModel.swift */,
 				DB18762CB489CBC5B9CAACFE /* FilePicker.swift */,
+				5F0C59B62E6955C4F3E57F27 /* ImageLibraryModel.swift */,
 				980C0CC18CAC585118FDBC68 /* ImmersionController.swift */,
 				7F6CF288BE530F5F2AFC2AEC /* RootView.swift */,
 			);
@@ -289,6 +297,7 @@
 				1F2E48A4AAC1C6F7815B656E /* GuestToolsCoordinator.swift */,
 				C7EEECC9AF70ED42593B51C7 /* LoopbackPortAllocator.swift */,
 				A51018C6C120FAD79979FC93 /* MachineRuntime.swift */,
+				BDAE1132B8210DF19C6E79C5 /* MachineRuntimeBase.swift */,
 				7584A6E0368D9AA54B787B85 /* QEMUMachineRuntime.swift */,
 				96503BBDA44669BFF9BA596C /* SPICEConnectionController.swift */,
 			);
@@ -596,6 +605,8 @@
 				E4840718E4AAFEF0058C03DC /* GuestAgentSocketTransport.swift in Sources */,
 				59D099DB2098BAD0D59AA854 /* GuestToolsBundleExporter.swift in Sources */,
 				A2D0D23D29BF9D8C7083E954 /* GuestToolsCoordinator.swift in Sources */,
+				97FD7D95220DE1D86CE1F6CF /* GuestToolsPanel.swift in Sources */,
+				3EABC87029E42D58A9AED74D /* ImageLibraryModel.swift in Sources */,
 				E42B12C82D5D53828403D4CE /* ImmersionController.swift in Sources */,
 				813E606F254FE1337BEBA76D /* ImmersiveInputCapture.swift in Sources */,
 				6B86D7566374617B23B05B88 /* KarabinerInputBridge.swift in Sources */,
@@ -606,6 +617,7 @@
 				7E411FE748C58D183A072BC1 /* MachineDisplayView.swift in Sources */,
 				E8D9AEFFE6C0A80C1760B40B /* MachineEmptyView.swift in Sources */,
 				15654EF61E6FC2498825FDC8 /* MachineRuntime.swift in Sources */,
+				335676BD037D30EB803EBCA2 /* MachineRuntimeBase.swift in Sources */,
 				5F8915C5582CD37861B19ACE /* NewMachineView.swift in Sources */,
 				1CE3E7FC275EBFB5412D809C /* QEMUMachineDisplayView.swift in Sources */,
 				CA35A66CE7597FE74FC55417 /* QEMUMachineRuntime.swift in Sources */,

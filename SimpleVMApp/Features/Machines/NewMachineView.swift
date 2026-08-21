@@ -120,7 +120,7 @@ struct NewMachineView: View {
                     }
                 }
                 Section("Catalog") {
-                    ForEach(model.catalog) { entry in
+                    ForEach(model.library.catalog) { entry in
                         Text(entry.displayName)
                             .tag(MachineCreationSource?.some(
                                 .catalogEntry(entry.id)
@@ -210,7 +210,7 @@ struct NewMachineView: View {
     }
 
     private var availableImages: [MachineImage] {
-        model.images.filter {
+        model.library.images.filter {
             $0.availability.isAvailable
                 || $0.artifactKind == .ociReference
         }
@@ -218,7 +218,7 @@ struct NewMachineView: View {
 
     private var selectedImage: MachineImage? {
         guard case .managedImage(let id) = source else { return nil }
-        return model.images.first { $0.id == id }
+        return model.library.images.first { $0.id == id }
     }
 
     private var needsBootProfile: Bool {
@@ -227,7 +227,7 @@ struct NewMachineView: View {
     }
 
     private var compatibleBootProfiles: [LinuxBootProfile] {
-        model.bootProfiles.filter {
+        model.library.bootProfiles.filter {
             $0.architecture == selectedArchitecture
         }
     }
@@ -235,9 +235,9 @@ struct NewMachineView: View {
     private var selectedArchitecture: GuestArchitecture? {
         switch source {
         case .managedImage(let id):
-            model.images.first(where: { $0.id == id })?.architecture
+            model.library.images.first(where: { $0.id == id })?.architecture
         case .catalogEntry(let id):
-            model.catalog.first(where: { $0.id == id })?.architecture
+            model.library.catalog.first(where: { $0.id == id })?.architecture
         case nil:
             nil
         }
@@ -257,7 +257,7 @@ struct NewMachineView: View {
         if let image = availableImages.first {
             source = .managedImage(image.id)
             name = image.name
-        } else if let entry = model.catalog.first {
+        } else if let entry = model.library.catalog.first {
             source = .catalogEntry(entry.id)
             name = entry.name
         }
@@ -273,7 +273,7 @@ struct NewMachineView: View {
     private func inspectLocalISO(_ url: URL) {
         Task {
             do {
-                let detection = try await model.detectArchitecture(at: url)
+                let detection = try await model.library.detectArchitecture(at: url)
                 switch detection {
                 case .architecture(let architecture):
                     pendingISO = PendingLocalISO(
@@ -299,7 +299,7 @@ struct NewMachineView: View {
 
         Task {
             do {
-                let imageID = try await model.importISO(
+                let imageID = try await model.library.importISO(
                     from: pendingISO.url,
                     architecture: pendingISO.architecture
                 )
@@ -364,14 +364,5 @@ private extension MachineImage {
 private extension ImageCatalogEntry {
     var displayName: String {
         [name, version].compactMap { $0 }.joined(separator: " ")
-    }
-}
-
-private extension ImageAvailability {
-    var isAvailable: Bool {
-        if case .available = self {
-            return true
-        }
-        return false
     }
 }

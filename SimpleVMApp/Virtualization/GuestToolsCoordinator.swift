@@ -252,17 +252,6 @@ struct ClipboardLoopGuard: Equatable {
     private(set) var lastSentToGuest: UInt64?
     private(set) var lastAppliedFromGuest: UInt64?
 
-    mutating func shouldSendToGuest(_ text: String) -> Bool {
-        let value = Self.fingerprint(text)
-        guard value != lastAppliedFromGuest,
-              value != lastSentToGuest else {
-            return false
-        }
-        lastAppliedFromGuest = nil
-        markSentToGuest(text)
-        return true
-    }
-
     func canSendToGuest(_ text: String) -> Bool {
         let value = Self.fingerprint(text)
         return value != lastAppliedFromGuest && value != lastSentToGuest

@@ -26,23 +26,21 @@ func roundTripsVersionedGuestAgentFrames() throws {
 
 @Test
 func decodesLegacyGuestAgentFramesAndStatus() throws {
-    let legacyRequest = try framedJSON(#"{"status":{}}"#)
-    let decodedRequest = try GuestAgentFrameCodec.decode(
+    let request = try GuestAgentFrameCodec.decode(
         GuestAgentRequestEnvelope.self,
-        from: legacyRequest
+        from: framedJSON(#"{"status":{}}"#)
     )
-    #expect(decodedRequest.protocolVersion == 1)
-    #expect(decodedRequest.requestID == nil)
-    #expect(decodedRequest.request == .status)
+    #expect(request.protocolVersion == 1)
+    #expect(request.requestID == nil)
+    #expect(request.request == .status)
 
-    let legacyStatus = try framedJSON(
-        """
-        {"status":{"protocolVersion":1,"hostname":"guest","ipAddresses":["192.0.2.2"],"operatingSystem":"Linux","sharedDirectories":["/mnt/share"]}}
-        """
-    )
     let response = try GuestAgentFrameCodec.decode(
         GuestAgentResponseEnvelope.self,
-        from: legacyStatus
+        from: framedJSON(
+            """
+            {"status":{"protocolVersion":1,"hostname":"guest","ipAddresses":["192.0.2.2"],"operatingSystem":"Linux","sharedDirectories":["/mnt/share"]}}
+            """
+        )
     )
     guard case .status(let status) = response.response else {
         Issue.record("Expected a legacy status response.")
