@@ -17,14 +17,17 @@ struct SimpleVMApp: App {
                         model.hasActiveMachines
                     }
                     lifecycleDelegate.stopActiveMachines = {
-                        await model.stopAllMachines()
+                        await model.stopAllMachinesGracefully()
+                    }
+                    lifecycleDelegate.forceStopActiveMachines = {
+                        await model.forceStopAllMachines()
                     }
                 }
         }
         .defaultSize(width: 1_180, height: 760)
 
         Settings {
-            SettingsView(storageURL: model.storageURL)
+            SettingsView(model: model)
                 .frame(width: 520)
         }
     }

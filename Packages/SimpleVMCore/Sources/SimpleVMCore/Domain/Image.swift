@@ -39,6 +39,7 @@ public struct MachineImage: Identifiable, Codable, Hashable, Sendable {
     public let id: UUID
     public var name: String
     public var version: String?
+    public var operatingSystem: GuestOperatingSystem
     public var architecture: GuestArchitecture
     public var artifactKind: ImageArtifactKind
     public var origin: ImageOrigin
@@ -50,6 +51,7 @@ public struct MachineImage: Identifiable, Codable, Hashable, Sendable {
         id: UUID = UUID(),
         name: String,
         version: String? = nil,
+        operatingSystem: GuestOperatingSystem = .linux,
         architecture: GuestArchitecture,
         artifactKind: ImageArtifactKind,
         origin: ImageOrigin,
@@ -60,12 +62,52 @@ public struct MachineImage: Identifiable, Codable, Hashable, Sendable {
         self.id = id
         self.name = name
         self.version = version
+        self.operatingSystem = operatingSystem
         self.architecture = architecture
         self.artifactKind = artifactKind
         self.origin = origin
         self.sha256 = sha256
         self.sizeBytes = sizeBytes
         self.availability = availability
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case version
+        case operatingSystem
+        case architecture
+        case artifactKind
+        case origin
+        case sha256
+        case sizeBytes
+        case availability
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        version = try container.decodeIfPresent(String.self, forKey: .version)
+        operatingSystem = try container.decodeIfPresent(
+            GuestOperatingSystem.self,
+            forKey: .operatingSystem
+        ) ?? .linux
+        architecture = try container.decode(
+            GuestArchitecture.self,
+            forKey: .architecture
+        )
+        artifactKind = try container.decode(
+            ImageArtifactKind.self,
+            forKey: .artifactKind
+        )
+        origin = try container.decode(ImageOrigin.self, forKey: .origin)
+        sha256 = try container.decodeIfPresent(String.self, forKey: .sha256)
+        sizeBytes = try container.decodeIfPresent(Int64.self, forKey: .sizeBytes)
+        availability = try container.decode(
+            ImageAvailability.self,
+            forKey: .availability
+        )
     }
 }
 

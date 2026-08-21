@@ -30,8 +30,37 @@ final class LaunchTests: XCTestCase {
 
         XCTAssertTrue(app.staticTexts["New Machine"].waitForExistence(timeout: 3))
         XCTAssertTrue(app.staticTexts["Source"].exists)
+        XCTAssertTrue(
+            app.descendants(matching: .any)[
+                "newMachine.operatingSystem"
+            ].exists
+        )
         XCTAssertTrue(app.staticTexts["Desktop and input profile"].exists)
         XCTAssertTrue(app.buttons["Create"].exists)
+    }
+
+    func testWindowsCreationHidesLinuxOptionsAndLinksMicrosoft() {
+        let app = XCUIApplication()
+        app.launchEnvironment["SIMPLEVM_STORAGE_ROOT"] =
+            FileManager.default.temporaryDirectory
+                .appending(path: UUID().uuidString)
+                .path
+        app.launch()
+
+        app.buttons["New Machine…"].click()
+        let windows = app.radioButtons["Windows 11"]
+        XCTAssertTrue(windows.waitForExistence(timeout: 3))
+        windows.click()
+
+        XCTAssertTrue(
+            app.links["Download Windows 11 ARM64 from Microsoft"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(app.staticTexts["Windows Integration"].exists)
+        XCTAssertFalse(app.staticTexts["Desktop and input profile"].exists)
+        XCTAssertFalse(
+            app.staticTexts["Enable Rosetta for Intel Linux binaries"].exists
+        )
     }
 
     func testMachineISOButtonOpensNativeFilePanel() {
@@ -105,5 +134,57 @@ final class LaunchTests: XCTestCase {
                     .path
             )
         )
+    }
+
+    func testWindowsMachineShowsWindowsIntegrationPanel() {
+        let app = XCUIApplication()
+        app.launchEnvironment["SIMPLEVM_STORAGE_ROOT"] =
+            FileManager.default.temporaryDirectory
+                .appending(path: UUID().uuidString)
+                .path
+        app.launchEnvironment["SIMPLEVM_UI_TEST_WINDOWS"] = "1"
+        app.launch()
+
+        let machine = app.staticTexts["Windows 11 Fixture"]
+        XCTAssertTrue(machine.waitForExistence(timeout: 5))
+        machine.click()
+
+        let status = app.buttons["windowsIntegration.status"]
+        XCTAssertTrue(status.waitForExistence(timeout: 5))
+        status.click()
+        XCTAssertTrue(
+            app.staticTexts["windowsIntegration.panel"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(app.staticTexts["Setup and recovery"].exists)
+        XCTAssertFalse(app.staticTexts["SimpleVM Guest Tools"].exists)
+    }
+
+    func testStoppedMachineShowsDisabledKeystrokePanel() {
+        let app = XCUIApplication()
+        app.launchEnvironment["SIMPLEVM_STORAGE_ROOT"] =
+            FileManager.default.temporaryDirectory
+                .appending(path: UUID().uuidString)
+                .path
+        app.launchEnvironment["SIMPLEVM_UI_TEST_WINDOWS"] = "1"
+        app.launch()
+
+        let machine = app.staticTexts["Windows 11 Fixture"]
+        XCTAssertTrue(machine.waitForExistence(timeout: 5))
+        machine.click()
+        let toggle = app.buttons["vmInput.toggle"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+        toggle.click()
+
+        XCTAssertTrue(
+            app.descendants(matching: .any)["vmInput.panel"]
+                .waitForExistence(timeout: 3)
+        )
+        XCTAssertTrue(
+            app.staticTexts[
+                "Start the machine before sending keystrokes."
+            ].exists
+        )
+        XCTAssertFalse(app.buttons["Type Text"].isEnabled)
     }
 }

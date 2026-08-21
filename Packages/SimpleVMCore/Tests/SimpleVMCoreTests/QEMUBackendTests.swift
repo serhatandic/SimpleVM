@@ -12,8 +12,102 @@ func discoversInstalledQEMURuntimeWhenAvailable() throws {
     }
 
     #expect(runtime.systemExecutableURL.lastPathComponent == "qemu-system-x86_64")
-    #expect(runtime.imageExecutableURL.lastPathComponent == "qemu-img")
+    #expect(runtime.imageExecutableURL?.lastPathComponent == "qemu-img")
     #expect(runtime.firmwareCodeURL.lastPathComponent == "edk2-x86_64-code.fd")
+}
+
+@Test
+func discoversUTMOnlyWindowsARMRuntime() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(
+        path: UUID().uuidString,
+        directoryHint: .isDirectory
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let helpersURL = directory.appending(
+        path: "Helpers",
+        directoryHint: .isDirectory
+    )
+    let utmURL = directory.appending(
+        path: "UTM.app",
+        directoryHint: .isDirectory
+    )
+    let resourcesURL = utmURL.appending(
+        path: "Contents/Resources/qemu",
+        directoryHint: .isDirectory
+    )
+    let frameworkURL = utmURL.appending(
+        path:
+            "Contents/Frameworks/qemu-aarch64-softmmu.framework/qemu-aarch64-softmmu"
+    )
+    try FileManager.default.createDirectory(
+        at: helpersURL,
+        withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+        at: resourcesURL,
+        withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+        at: frameworkURL.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    for url in [
+        helpersURL.appending(path: "UTMQEMUARM64Launcher"),
+        helpersURL.appending(path: "UTMSWTPMLauncher")
+    ] {
+        FileManager.default.createFile(atPath: url.path, contents: Data())
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o755],
+            ofItemAtPath: url.path
+        )
+    }
+    FileManager.default.createFile(
+        atPath: frameworkURL.path,
+        contents: Data()
+    )
+    FileManager.default.createFile(
+        atPath: resourcesURL.appending(
+            path: "edk2-aarch64-secure-code.fd"
+        ).path,
+        contents: Data(repeating: 0, count: 8)
+    )
+    var qcow2Header = Data(repeating: 0, count: 32)
+    qcow2Header.replaceSubrange(
+        0..<4,
+        with: [0x51, 0x46, 0x49, 0xfb]
+    )
+    qcow2Header.replaceSubrange(
+        24..<32,
+        with: [0, 0, 0, 0, 4, 0, 0, 0]
+    )
+    FileManager.default.createFile(
+        atPath: resourcesURL.appending(
+            path: "edk2-arm-secure-vars.fd"
+        ).path,
+        contents: qcow2Header
+    )
+
+    let runtime = try QEMURuntimeDiscovery.discover(
+        for: .windows,
+        architecture: .arm64,
+        environment: [:],
+        bundleURL: nil,
+        helperDirectoryURL: helpersURL,
+        utmURL: utmURL
+    )
+    #expect(runtime.architecture == .arm64)
+    #expect(runtime.acceleration == .hvf)
+    #expect(runtime.firmwareVariablesFormat == .qcow2)
+    #expect(
+        try QEMURuntimeDiscovery.qcow2VirtualSize(
+            at: runtime.firmwareVariablesTemplateURL
+        ) == 64 * 1_024 * 1_024
+    )
+    #expect(runtime.imageExecutableURL == nil)
+    #expect(
+        runtime.softwareTPMExecutableURL?.lastPathComponent
+            == "UTMSWTPMLauncher"
+    )
 }
 
 @Test
@@ -188,6 +282,36 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
             && $0.contains("server=on,wait=off")
     })
 
+    let persistedBackendURL = directory.appending(path: "PersistedQEMU")
+    try FileManager.default.createDirectory(
+        at: persistedBackendURL,
+        withIntermediateDirectories: true
+    )
+    try Data(repeating: 0, count: 512).write(
+        to: persistedBackendURL.appending(path: "efi-code.fd")
+    )
+    try Data(repeating: 0, count: 512).write(
+        to: persistedBackendURL.appending(path: "efi-vars.fd")
+    )
+    let persistedConfiguration = try QEMUConfigurationBuilder.make(
+        machine: machineWithoutShare,
+        diskURL: diskURL,
+        installerURL: nil,
+        backendStateURL: persistedBackendURL,
+        runtime: QEMURuntime(
+            systemExecutableURL: executableURL,
+            imageExecutableURL: imageExecutableURL,
+            firmwareCodeURL: codeURL,
+            firmwareVariablesTemplateURL: variablesTemplateURL,
+            firmwareVariablesFormat: .qcow2
+        ),
+        vncPort: 5_906
+    )
+    #expect(persistedConfiguration.arguments.contains {
+        $0.contains("format=raw")
+            && $0.contains("PersistedQEMU/efi-vars.fd")
+    })
+
     let accelerated = try QEMUConfigurationBuilder.make(
         machine: machine,
         diskURL: diskURL,
@@ -230,6 +354,138 @@ func buildsExplicitQEMUArgumentsAndPersistentFirmware() throws {
 }
 
 @Test
+func buildsWindowsARMHVFConfiguration() throws {
+    let directory = FileManager.default.temporaryDirectory.appending(
+        path: UUID().uuidString,
+        directoryHint: .isDirectory
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+    )
+    let executableURL = directory.appending(path: "UTMQEMUARM64Launcher")
+    let swtpmURL = directory.appending(path: "UTMSWTPMLauncher")
+    let codeURL = directory.appending(path: "edk2-aarch64-secure-code.fd")
+    let variablesURL = directory.appending(path: "edk2-arm-secure-vars.fd")
+    let diskURL = directory.appending(path: "disk.raw")
+    let installerURL = directory.appending(path: "windows.iso")
+    let supportURL = directory.appending(path: "support.iso")
+    let sharedURL = directory.appending(
+        path: "Shared",
+        directoryHint: .isDirectory
+    )
+    for url in [
+        executableURL,
+        swtpmURL,
+        codeURL,
+        diskURL,
+        installerURL,
+        supportURL
+    ] {
+        FileManager.default.createFile(
+            atPath: url.path,
+            contents: Data(repeating: 0, count: 8)
+        )
+    }
+    try Data([0x51, 0x46, 0x49, 0xfb]).write(to: variablesURL)
+    try FileManager.default.createDirectory(
+        at: sharedURL,
+        withIntermediateDirectories: true
+    )
+    let hardwareUUID = UUID(
+        uuidString: "12345678-1234-5678-9ABC-DEF012345678"
+    )!
+    let imageID = UUID()
+    let machine = Machine(
+        name: "Windows 11",
+        spec: MachineSpec(
+            cpuCount: 4,
+            memorySizeBytes: 8 * 1_024 * 1_024 * 1_024,
+            diskSizeBytes: 128 * 1_024 * 1_024 * 1_024,
+            architecture: .arm64,
+            operatingSystem: .windows,
+            sharedDirectoryPath: sharedURL.path,
+            qemuHardwareProfile: .windowsARM64(
+                hardwareUUID: hardwareUUID
+            ),
+            windowsSupportToolsAttached: true
+        ),
+        sourceImageID: imageID,
+        disk: MachineDisk(
+            relativePath: "disk.raw",
+            capacityBytes: 128 * 1_024 * 1_024 * 1_024
+        ),
+        provisioningState: .readyToInstall,
+        bootMedia: .installer(imageID: imageID),
+        backend: .qemu,
+        backendState: BackendStateReference(relativeDirectory: "QEMU")
+    )
+    let configuration = try QEMUConfigurationBuilder.make(
+        machine: machine,
+        diskURL: diskURL,
+        installerURL: installerURL,
+        supportToolsURL: supportURL,
+        backendStateURL: directory.appending(path: "QEMU"),
+        runtime: QEMURuntime(
+            architecture: .arm64,
+            systemExecutableURL: executableURL,
+            imageExecutableURL: nil,
+            firmwareCodeURL: codeURL,
+            firmwareCodeFormat: .raw,
+            firmwareVariablesTemplateURL: variablesURL,
+            firmwareVariablesFormat: .qcow2,
+            displayBackend: .spiceGL(resourceDirectoryURL: directory),
+            acceleration: .hvf,
+            softwareTPMExecutableURL: swtpmURL
+        ),
+        vncPort: 5_905
+    )
+
+    #expect(configuration.arguments.contains("virt-10.0"))
+    #expect(configuration.arguments.contains("hvf"))
+    #expect(configuration.arguments.contains("host"))
+    #expect(configuration.arguments.contains(hardwareUUID.uuidString))
+    #expect(configuration.arguments.contains {
+        $0.contains("format=qcow2") && $0.contains("efi-vars.fd")
+    })
+    #expect(configuration.arguments.contains("tpm-crb-device,tpmdev=tpm0"))
+    #expect(!configuration.arguments.contains("tpm-crb,tpmdev=tpm0"))
+    #expect(configuration.arguments.contains {
+        $0.hasPrefix("nvme,drive=system-disk,serial=")
+            && $0.contains("bootindex=0")
+    })
+    #expect(configuration.arguments.contains(
+        "virtio-net-pci,netdev=net0,mac=12:34:56:78:12:34"
+    ))
+    #expect(configuration.arguments.contains("virtio-ramfb"))
+    #expect(configuration.arguments.contains {
+        $0.contains("disable-ticketing=on,gl=off")
+    })
+    #expect(configuration.arguments.contains {
+        $0.contains("id=installer") && $0.contains(installerURL.path)
+    })
+    #expect(configuration.arguments.contains {
+        $0.contains("id=support-tools") && $0.contains(supportURL.path)
+    })
+    #expect(configuration.arguments.contains(
+        "virtserialport,chardev=webdav,name=org.spice-space.webdav.0"
+    ))
+    #expect(configuration.arguments.contains(
+        "virtserialport,chardev=qga,name=org.qemu.guest_agent.0"
+    ))
+    #expect(!configuration.arguments.contains {
+        $0.contains("virtio-9p") || $0.contains("com.simplevm.agent")
+    })
+    #expect(configuration.softwareTPM?.executableURL == swtpmURL)
+    #expect(configuration.qemuGuestAgentSocketURL != nil)
+    let copiedVariablesURL = directory.appending(path: "QEMU/efi-vars.fd")
+    #expect(
+        try QEMURuntimeDiscovery.imageFormat(at: copiedVariablesURL) == .qcow2
+    )
+}
+
+@Test
 func supervisesRealQEMUProcessWhenAvailable() async throws {
     let runtime: QEMURuntime
     do {
@@ -267,6 +523,80 @@ func supervisesRealQEMUProcessWhenAvailable() async throws {
 }
 
 @Test
+func startsRealWindowsARMFirmwareWhenHelpersAreConfigured() async throws {
+    guard let helperPath = ProcessInfo.processInfo.environment[
+        "SIMPLEVM_ARM_QEMU_HELPER_DIR"
+    ] else {
+        return
+    }
+    let runtime = try QEMURuntimeDiscovery.discover(
+        for: .windows,
+        architecture: .arm64,
+        helperDirectoryURL: URL(
+            filePath: helperPath,
+            directoryHint: .isDirectory
+        )
+    )
+    let supportToolsURL = ProcessInfo.processInfo.environment[
+        "SIMPLEVM_WINDOWS_SUPPORT_ISO_FIXTURE"
+    ].map { URL(filePath: $0) }
+    let directory = FileManager.default.temporaryDirectory.appending(
+        path: UUID().uuidString,
+        directoryHint: .isDirectory
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true
+    )
+    let diskURL = directory.appending(path: "disk.raw")
+    try SparseDiskCreator.create(
+        at: diskURL,
+        capacityBytes: 64 * 1_024 * 1_024
+    )
+    let machine = Machine(
+        name: "Windows ARM Firmware Test",
+        spec: MachineSpec(
+            cpuCount: 2,
+            memorySizeBytes: 4 * 1_024 * 1_024 * 1_024,
+            diskSizeBytes: 64 * 1_024 * 1_024,
+            architecture: .arm64,
+            operatingSystem: .windows,
+            qemuHardwareProfile: .windowsARM64(),
+            windowsSupportToolsAttached: supportToolsURL != nil
+        ),
+        sourceImageID: UUID(),
+        disk: MachineDisk(
+            relativePath: "disk.raw",
+            capacityBytes: 64 * 1_024 * 1_024
+        ),
+        provisioningState: .ready,
+        bootMedia: .systemDisk,
+        backend: .qemu,
+        backendState: BackendStateReference(relativeDirectory: "QEMU")
+    )
+    let configuration = try QEMUConfigurationBuilder.make(
+        machine: machine,
+        diskURL: diskURL,
+        installerURL: nil,
+        supportToolsURL: supportToolsURL,
+        backendStateURL: directory.appending(path: "QEMU"),
+        runtime: runtime,
+        vncPort: 5_998
+    )
+    let tpm = SoftwareTPMProcessController()
+    try await tpm.start(configuration: #require(configuration.softwareTPM))
+    let qemu = QEMUProcessController()
+    try await qemu.start(configuration: configuration)
+    try await Task.sleep(for: .seconds(2))
+
+    #expect(await qemu.state == .running)
+
+    await qemu.forceStop()
+    await tpm.stop()
+}
+
+@Test
 func intentionalProcessTerminationRemainsStopped() async throws {
     let directory = FileManager.default.temporaryDirectory.appending(
         path: UUID().uuidString,
@@ -288,7 +618,13 @@ func intentionalProcessTerminationRemainsStopped() async throws {
                 logURL: directory.appending(path: UUID().uuidString)
             )
         )
-        await controller.stop()
+        let result = await controller.stop(gracePeriod: .zero)
+        guard case .requestFailed = result else {
+            Issue.record("Expected a missing QMP control failure.")
+            await controller.forceStop()
+            return
+        }
+        await controller.forceStop()
         try await Task.sleep(for: .milliseconds(10))
         #expect(await controller.state == .stopped)
     }

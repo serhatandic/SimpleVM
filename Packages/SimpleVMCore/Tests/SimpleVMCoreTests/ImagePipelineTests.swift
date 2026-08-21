@@ -8,6 +8,7 @@ func loadsDistributionNeutralBundledCatalog() throws {
     let entry = try #require(entries.first)
 
     #expect(entry.artifactKind == .installerISO)
+    #expect(entry.operatingSystem == .linux)
     #expect(entry.architecture == .arm64)
     #expect(entry.remoteURL.scheme == "https")
     #expect(entry.sha256.count == 64)
@@ -149,6 +150,128 @@ func reportsHTTPFailureSeparatelyFromChecksumFailure() async throws {
             expectedSHA256: String(repeating: "0", count: 64)
         ) { _ in }
     }
+}
+
+@Test
+func stagesOnlySafeWindowsARM64SupportPayload() throws {
+        let rootURL = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let sourceURL = rootURL.appending(
+            path: "Source",
+            directoryHint: .isDirectory
+        )
+        let destinationURL = rootURL.appending(
+            path: "Destination",
+            directoryHint: .isDirectory
+        )
+        try FileManager.default.createDirectory(
+            at: sourceURL,
+            withIntermediateDirectories: true
+        )
+        for driverName in WindowsSupportMediaManifest.driverNames {
+            let driverURL = sourceURL.appending(
+                path: "Drivers/\(driverName)/w11/ARM64",
+                directoryHint: .isDirectory
+            )
+            try FileManager.default.createDirectory(
+                at: driverURL,
+                withIntermediateDirectories: true
+            )
+            for fileExtension in ["cat", "inf", "sys"] {
+                try Data(driverName.utf8).write(
+                    to: driverURL.appending(path: "driver.\(fileExtension)")
+                )
+            }
+        }
+        try Data("installer".utf8).write(
+            to: sourceURL.appending(path: "utm-guest-tools.exe")
+        )
+        try Data("license".utf8).write(
+            to: sourceURL.appending(path: "virtio-win_license.txt")
+        )
+        try Data("<ProductKey>unsafe</ProductKey>".utf8).write(
+            to: sourceURL.appending(path: "Autounattend.xml")
+        )
+        try Data("unsafe".utf8).write(
+            to: sourceURL.appending(path: "Uninstall-VirtioGpu.cmd")
+        )
+
+        try WindowsSupportMediaBuilder.stage(
+            fromMountedURL: sourceURL,
+            to: destinationURL
+        )
+
+        #expect(FileManager.default.fileExists(
+            atPath: destinationURL.appending(path: "utm-guest-tools.exe").path
+        ))
+        #expect(!FileManager.default.fileExists(
+            atPath: destinationURL.appending(path: "Uninstall-VirtioGpu.cmd").path
+        ))
+        for driverName in WindowsSupportMediaManifest.driverNames {
+            #expect(FileManager.default.fileExists(
+                atPath: destinationURL.appending(
+                    path: "Drivers/\(driverName)/w11/ARM64/driver.inf"
+                ).path
+            ))
+        }
+
+        let answer = try String(
+            contentsOf: destinationURL.appending(path: "Autounattend.xml"),
+            encoding: .utf8
+        ).lowercased()
+        #expect(answer.contains("pnpcustomizationswinpe"))
+        #expect(answer.contains("pnpcustomizationsnonwinpe"))
+        #expect(!answer.contains("productkey"))
+        #expect(!answer.contains("enablelua"))
+        #expect(!answer.contains("labconfig"))
+        #expect(!answer.contains("oobesystem"))
+        #expect(!answer.contains("firstlogoncommands"))
+}
+
+@Test
+func rejectsIncompleteWindowsSupportDrivers() throws {
+        let rootURL = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        try FileManager.default.createDirectory(
+            at: rootURL.appending(path: "Drivers/NetKVM/w11/ARM64"),
+            withIntermediateDirectories: true
+        )
+
+        #expect(throws: WindowsSupportToolsError.self) {
+            try WindowsSupportMediaBuilder.stage(
+                fromMountedURL: rootURL,
+                to: rootURL.appending(path: "Destination")
+            )
+        }
+}
+
+@Test
+func buildsSafeWindowsSupportISOWhenFixtureIsConfigured() throws {
+    guard let fixturePath = ProcessInfo.processInfo.environment[
+        "SIMPLEVM_WINDOWS_TOOLS_ISO_FIXTURE"
+    ] else {
+        return
+    }
+    let destinationURL = FileManager.default.temporaryDirectory.appending(
+        path: "simplevm-windows-support-\(UUID().uuidString).iso"
+    )
+    defer { try? FileManager.default.removeItem(at: destinationURL) }
+
+    try WindowsSupportMediaBuilder.build(
+        from: URL(filePath: fixturePath),
+        to: destinationURL
+    )
+
+    let attributes = try FileManager.default.attributesOfItem(
+        atPath: destinationURL.path
+    )
+    #expect((attributes[.size] as? NSNumber)?.int64Value ?? 0 > 0)
 }
 
 private final class StubURLProtocol: URLProtocol, @unchecked Sendable {

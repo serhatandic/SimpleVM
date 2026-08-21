@@ -4,6 +4,7 @@ import SimpleVMCore
 enum KeyboardPreset {
     case gnome
     case hyprland
+    case windows
     case passthrough
 }
 
@@ -44,6 +45,7 @@ final class KeyboardMappingSettings {
     static let shared = KeyboardMappingSettings()
 
     private(set) var activePreset: KeyboardPreset = .gnome
+    private var customMappings: [HostChord: GuestChord] = [:]
 
     func chord(
         keyCode: UInt16,
@@ -55,12 +57,15 @@ final class KeyboardMappingSettings {
             .control,
             .shift
         ])
+        let host = HostChord(keyCode: keyCode, modifiers: normalized)
+        if let custom = customMappings[host] {
+            return custom
+        }
         guard activePreset != .passthrough else {
             return GuestChord(keyCode: keyCode, modifiers: normalized)
         }
-        let resolved = mappings[
-            HostChord(keyCode: keyCode, modifiers: normalized)
-        ] ?? GuestChord(keyCode: keyCode, modifiers: normalized)
+        let resolved = mappings[host]
+            ?? GuestChord(keyCode: keyCode, modifiers: normalized)
         synchronizeHyprlandWorkspace(with: resolved)
         return resolved
     }
@@ -100,6 +105,11 @@ final class KeyboardMappingSettings {
             return GuestChord(
                 keyCode: direction == .next ? 121 : 116,
                 modifiers: [.command]
+            )
+        case .windows:
+            return GuestChord(
+                keyCode: direction == .next ? 124 : 123,
+                modifiers: [.control, .command]
             )
         }
     }
@@ -143,7 +153,8 @@ final class KeyboardMappingSettings {
             .control,
             .shift
         ])
-        if activePreset == .gnome, result.contains(.command) {
+        if activePreset == .gnome || activePreset == .windows,
+           result.contains(.command) {
             result.remove(.command)
             result.insert(.control)
         }
@@ -168,6 +179,13 @@ final class KeyboardMappingSettings {
                 ("⌘Tab", "Alt+Tab"),
                 ("⌃⌘F", "F11")
             ]
+        case .windows:
+            Self.sharedDescriptions + [
+                ("⌘Q", "Alt+F4"),
+                ("⌘Tab", "Alt+Tab"),
+                ("⇧⌘Tab", "Alt+Shift+Tab"),
+                ("Workspace swipe", "Ctrl+Windows+Left / Right")
+            ]
         case .hyprland:
             Self.sharedDescriptions + [
                 ("⌘W / ⌘Q", "Super+W"),
@@ -189,11 +207,28 @@ final class KeyboardMappingSettings {
     }
 
     private var mappings: [HostChord: GuestChord] {
-        Dictionary(
+        var result = Dictionary(
             uniqueKeysWithValues: Self.mappingEntries(
                 for: activePreset
             ).map { ($0.host, $0.guest) }
         )
+        for (host, guest) in customMappings {
+            result[host] = guest
+        }
+        return result
+    }
+
+    var activeMappingEntries: [KeyboardMappingEntry] {
+        mappings.map {
+            KeyboardMappingEntry(host: $0.key, guest: $0.value)
+        }
+        .sorted {
+            if $0.host.keyCode != $1.host.keyCode {
+                return $0.host.keyCode < $1.host.keyCode
+            }
+            return $0.host.modifiers.rawValue
+                < $1.host.modifiers.rawValue
+        }
     }
 
     static func mappingEntries(
@@ -269,7 +304,7 @@ final class KeyboardMappingSettings {
         add(117, [.option], [.control])
 
         switch preset {
-        case .gnome:
+        case .gnome, .windows:
             add(
                 12,
                 [.command],
@@ -375,9 +410,20 @@ final class KeyboardMappingSettings {
 
     func activate(
         profile: MachineInputProfile,
-        forMachineNamed name: String
+        forMachineNamed name: String,
+        customProfile: CustomKeyboardProfile? = nil
     ) {
-        activePreset = Self.preset(for: profile, machineName: name)
+        let selectedProfile = customProfile?.baseProfile ?? profile
+        activePreset = Self.preset(
+            for: selectedProfile,
+            machineName: name
+        )
+        customMappings = Dictionary(
+            uniqueKeysWithValues:
+                ((try? KeyboardProfileRuleParser.parse(
+                    customProfile?.rules ?? ""
+                )) ?? []).map { ($0.host, $0.guest) }
+        )
         if activePreset == .hyprland {
             UserDefaults.standard.set(
                 1,
@@ -388,6 +434,7 @@ final class KeyboardMappingSettings {
 
     func deactivate() {
         activePreset = .gnome
+        customMappings = [:]
     }
 
     private static func preset(
@@ -399,6 +446,8 @@ final class KeyboardMappingSettings {
             .gnome
         case .macOSHyprland:
             .hyprland
+        case .macOSWindows:
+            .windows
         case .linuxPassthrough:
             .passthrough
         }

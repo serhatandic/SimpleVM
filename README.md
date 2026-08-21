@@ -12,9 +12,10 @@
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-black)](https://www.apple.com/macos/)
 [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-blue)](LICENSE.md)
 
-SimpleVM is a focused, source-available Linux virtual machine manager for
-Apple Silicon Macs. It uses Apple's Virtualization framework for native ARM64
-guests and a QEMU/SPICE/Metal path for x86_64 compatibility.
+SimpleVM is a focused, source-available virtual machine manager for Apple
+Silicon Macs. It uses Apple's Virtualization framework for native ARM64 Linux,
+QEMU/HVF for Windows 11 ARM64 Preview, and QEMU/SPICE/Metal for x86_64 Linux
+compatibility.
 
 > [!IMPORTANT]
 > SimpleVM is currently a `0.1.0` source build. There is no signed DMG or
@@ -23,6 +24,9 @@ guests and a QEMU/SPICE/Metal path for x86_64 compatibility.
 ## Highlights
 
 - Standard ARM64 EFI ISO installation with near-native Apple Virtualization
+- Windows 11 ARM64 Preview with QEMU/HVF, ARM UEFI Secure Boot, and TPM 2.0
+- Verified, driver-only Windows support media that leaves Microsoft Setup
+  interactive
 - x86_64 full-system emulation with QEMU TCG and a Metal-rendered SPICE display
 - Immersive fullscreen that forwards macOS shortcuts and workspace swipes
 - Host-derived guest resolution, absolute pointer input, and single-cursor mode
@@ -44,10 +48,13 @@ release test matrix.
 | Guest | Backend | CPU | Display | Audio output |
 | --- | --- | --- | --- | --- |
 | ARM64 Linux | Apple Virtualization | Hardware virtualization | `VZVirtualMachineView` | Virtio sound |
+| Windows 11 ARM64 Preview | QEMU | HVF hardware virtualization | UTM QEMU, SPICE, CocoaSpice, Metal | Intel HDA over SPICE |
 | x86_64 Linux | QEMU | TCG software emulation | UTM QEMU, SPICE, CocoaSpice, Metal | Intel HDA over SPICE or Core Audio |
 
 The x86_64 display path is GPU-accelerated, but its CPU remains fully emulated.
 It is intended for compatibility and will not match native ARM64 performance.
+The Windows display path defaults to conservative 2D `virtio-ramfb`; guest 3D
+acceleration is not currently claimed.
 
 ## Requirements
 
@@ -62,7 +69,8 @@ It is intended for compatibility and will not match native ARM64 performance.
 ### Runtime dependencies
 
 - [UTM](https://mac.getutm.app/) installed at `/Applications/UTM.app`
-  - Required by the current source build for its QEMU and SPICE frameworks
+  - Required by the current source build for ARM/x86 QEMU, SPICE, secure
+    firmware, and software TPM frameworks
   - UTM 4.7.5 is the currently validated version
 - [QEMU](https://www.qemu.org/) from Homebrew
   - Required for x86_64 disk tooling and the software-display fallback
@@ -98,8 +106,9 @@ one final approval for the new stable identity.
 ## Create a machine
 
 1. Open **Images** in the sidebar.
-2. Import a Linux EFI installer ISO, or download a catalog image.
-3. Choose **New Machine...**, select the image, and configure CPU, memory,
+2. Import a Linux EFI installer ISO, a Windows 11 ARM64 ISO, or download a
+   Linux catalog image.
+3. Choose **New Machine...**, select the guest OS and image, and configure CPU, memory,
    storage, sharing, and port forwarding.
 4. Start the machine and complete the guest installer.
 5. Shut the guest down, choose **Eject Installer**, and boot from its
@@ -116,15 +125,62 @@ VM disks and installer media are intentionally excluded from Git.
 ### Export and migrate
 
 - In **Images**, open an available image's action menu and choose
-  **Export...**. The original media filename is preserved when possible.
+  **Export Copy...**, or select it and use the visible toolbar export button.
+  Installer ISOs keep their original filename when possible.
+- A machine created from an installer also exposes **Export Source ISO...** in
+  Machine actions, even after the installer is ejected.
 - On a stopped machine, open **Machine actions** and choose
   **Export Disk...**. The result is a raw disk that can be brought into
   another SimpleVM installation with **Import Disk**.
 
 Machine exports contain the disk only. CPU, memory, networking, EFI variables,
-shares, snapshots, and other machine settings are not included.
+TPM state, shares, snapshots, and other machine settings are not included.
+Windows 11 can enable Device Encryption automatically, so save the BitLocker
+recovery key before creating snapshots, clones, or disk exports. SimpleVM
+requires an acknowledgment but never collects or stores the key.
 
-## SimpleVM Guest Tools
+## Windows 11 ARM64 Preview
+
+Download the official ARM64 ISO from
+[Microsoft](https://www.microsoft.com/software-download/windows11arm64). A
+valid Microsoft license is required; SimpleVM does not download, modify, or
+redistribute Windows.
+
+SimpleVM downloads a pinned UTM support ISO, verifies its size and SHA-256, and
+builds a local read-only image containing signed Windows 11 ARM64 drivers,
+licenses, and a driver-only answer file. UTM's original unattended policy is
+excluded. The generated answer file only stages drivers during `windowsPE` and
+`offlineServicing`; it does not provide a product key, bypass requirements,
+create an account, alter OOBE/privacy, disable UAC, change activation, or remove
+Windows Recovery.
+
+The current pin is UTM guest tools `0.1.272` from `v10.0.12-utm`, SHA-256
+`6090ac5b7c01c320ba860fea2c5697a86c9406504acf8183db3eea533bb5224a`.
+
+After Setup:
+
+1. Shut Windows down and choose **Eject Installer**.
+2. Open **Windows Integration**.
+3. In Windows, open the **SimpleVM Drivers** CD and run
+   `utm-guest-tools.exe` yourself for optional SPICE clipboard, dynamic resize,
+   and WebDAV folder sharing. This is a third-party UTM installer and SimpleVM
+   never runs it automatically.
+4. If a display-driver change produces a black screen, stop the VM and choose
+   **Compatibility** display mode in Windows Integration.
+
+If firmware or an installer needs characters that are difficult to type with
+the physical keyboard, open **Send Keystrokes** (`Shift-Command-K`). Its
+scratchpad types literal US-keyboard characters directly into the VM and works
+before guest tools exist. It includes dedicated `:`, Escape, Tab, F10, Ctrl+C,
+and Ctrl+Alt+Delete buttons. Text is never logged or saved and clears after
+sending by default.
+
+Windows 11 ARM64 runs x86 and x64 user-mode applications through Microsoft's
+built-in Prism emulator. Apple Rosetta is not used. Kernel drivers, anticheat
+drivers, filesystem filters, VPN drivers, and similar components need native
+ARM64 builds.
+
+## SimpleVM Linux Guest Tools
 
 Guest Tools are optional. VMs boot and remain usable when the agent is absent,
 stopped, incompatible, or temporarily disconnected. SimpleVM does not install
@@ -216,6 +272,23 @@ When a machine uses the **Automatic** desktop and input profile, a connected
 agent's detected GNOME or Hyprland desktop selects the active runtime mapping.
 An explicit profile selection is never overwritten. Without an agent, the
 existing machine-name fallback remains in effect.
+
+### Custom keyboard profiles
+
+Built-in profiles are immutable. In **SimpleVM > Settings > Custom Keyboard
+Profiles**, create or duplicate a named profile, choose the built-in profile it
+inherits from, and add shortcut overrides using:
+
+```text
+host shortcut -> guest shortcut
+cmd+semicolon -> shift+semicolon
+cmd+return -> command+return
+```
+
+Profiles support Command/Super/Windows, Control, Option/Alt, Shift, letters,
+digits, punctuation names such as `colon`, arrows, navigation keys, and F1-F12.
+Select a built-in or custom profile per machine from **Machine actions >
+Desktop and Input Profile**.
 
 ### Security model
 
@@ -367,8 +440,11 @@ The fixture path and installer image remain local and are never committed.
 
 ## Current limitations
 
-- Linux guests only
 - Apple Silicon hosts only
+- Windows 11 ARM64 remains Preview until the current Microsoft ISO completes
+  the release matrix
+- Windows x86/x64 emulation covers user-mode applications, not kernel drivers
+- No claimed Windows guest 3D acceleration
 - No prebuilt or notarized release artifact
 - x86_64 CPU execution uses TCG software emulation
 - The accelerated x86_64 build currently expects UTM in `/Applications`

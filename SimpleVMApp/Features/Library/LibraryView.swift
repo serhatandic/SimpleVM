@@ -8,6 +8,7 @@ struct LibraryView: View {
     @State private var presentsOCI = false
     @State private var pendingImport: PendingISOImport?
     @State private var confirmsRemoval: MachineImage?
+    @State private var selectedImageID: UUID?
 
     var body: some View {
         Group {
@@ -49,6 +50,14 @@ struct LibraryView: View {
                 } label: {
                     Label("Add OCI Reference", systemImage: "shippingbox")
                 }
+                Button {
+                    if let selectedExportableImage {
+                        exportImage(selectedExportableImage)
+                    }
+                } label: {
+                    Label("Export Copy…", systemImage: "square.and.arrow.up")
+                }
+                .disabled(selectedExportableImage == nil)
             }
         }
         .sheet(isPresented: $presentsOCI) {
@@ -59,11 +68,12 @@ struct LibraryView: View {
         .sheet(item: $pendingImport) { pendingImport in
             ISOImportView(
                 pendingImport: pendingImport,
-                onImport: { architecture in
+                onImport: { operatingSystem, architecture in
                     Task {
                         do {
                             _ = try await model.library.importImage(
                                 from: pendingImport.url,
+                                operatingSystem: operatingSystem,
                                 architecture: architecture,
                                 artifactKind: pendingImport.artifactKind
                             )
@@ -98,7 +108,7 @@ struct LibraryView: View {
     }
 
     private var imageTable: some View {
-        Table(model.library.images) {
+        Table(model.library.images, selection: $selectedImageID) {
             TableColumn("Name") { image in
                 VStack(alignment: .leading) {
                     Text(image.name)
@@ -108,9 +118,20 @@ struct LibraryView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
+                .contextMenu {
+                    if image.availability.isAvailable,
+                       image.suggestedExportFileName != nil {
+                        Button("Export Copy…") {
+                            exportImage(image)
+                        }
+                    }
+                }
             }
             TableColumn("Architecture") { image in
                 Text(image.architecture.displayName)
+            }
+            TableColumn("System") { image in
+                Text(image.operatingSystem.displayName)
             }
             TableColumn("Kind") { image in
                 Text(image.artifactKind.displayName)
@@ -147,7 +168,7 @@ struct LibraryView: View {
                                 exportImage(image)
                             } label: {
                                 Label(
-                                    "Export...",
+                                    "Export Copy...",
                                     systemImage: "square.and.arrow.up"
                                 )
                             }
@@ -182,6 +203,18 @@ struct LibraryView: View {
         .disabled(model.library.catalog.isEmpty)
     }
 
+    private var selectedExportableImage: MachineImage? {
+        guard let selectedImageID,
+              let image = model.library.images.first(where: {
+                  $0.id == selectedImageID
+              }),
+              image.availability.isAvailable,
+              image.suggestedExportFileName != nil else {
+            return nil
+        }
+        return image
+    }
+
     private var removalBinding: Binding<Bool> {
         Binding(
             get: { confirmsRemoval != nil },
@@ -199,6 +232,7 @@ struct LibraryView: View {
             pendingImport = PendingISOImport(
                 url: url,
                 detection: detection ?? .unknown,
+                operatingSystem: .linux,
                 artifactKind: .installerISO
             )
         }
@@ -224,6 +258,7 @@ struct LibraryView: View {
             pendingImport = PendingISOImport(
                 url: url,
                 detection: .unknown,
+                operatingSystem: .linux,
                 artifactKind: .preinstalledDisk
             )
         }
@@ -239,6 +274,7 @@ struct LibraryView: View {
             pendingImport = PendingISOImport(
                 url: url,
                 detection: .unknown,
+                operatingSystem: .linux,
                 artifactKind: .rootfsArchive
             )
         }
@@ -277,14 +313,16 @@ private struct PendingISOImport: Identifiable {
     let id = UUID()
     let url: URL
     let detection: ISOArchitectureDetection
+    var operatingSystem: GuestOperatingSystem = .linux
     var artifactKind: ImageArtifactKind = .installerISO
 }
 
 private struct ISOImportView: View {
     let pendingImport: PendingISOImport
-    let onImport: (GuestArchitecture) -> Void
+    let onImport: (GuestOperatingSystem, GuestArchitecture) -> Void
     let onCancel: () -> Void
 
+    @State private var operatingSystem = GuestOperatingSystem.linux
     @State private var architecture = GuestArchitecture.arm64
 
     var body: some View {
@@ -296,9 +334,22 @@ private struct ISOImportView: View {
             )
                 .font(.title2.weight(.semibold))
             LabeledContent("File", value: pendingImport.url.lastPathComponent)
-            Picker("Architecture", selection: $architecture) {
-                ForEach(GuestArchitecture.allCases, id: \.self) {
-                    Text($0.displayName).tag($0)
+            if pendingImport.artifactKind == .installerISO {
+                Picker("Operating system", selection: $operatingSystem) {
+                    ForEach(GuestOperatingSystem.allCases) {
+                        Text($0.displayName).tag($0)
+                    }
+                }
+            } else {
+                LabeledContent("Operating system", value: "Linux")
+            }
+            if operatingSystem == .windows {
+                LabeledContent("Architecture", value: "ARM64")
+            } else {
+                Picker("Architecture", selection: $architecture) {
+                    ForEach(GuestArchitecture.allCases, id: \.self) {
+                        Text($0.displayName).tag($0)
+                    }
                 }
             }
             if pendingImport.detection == .unknown {
@@ -315,17 +366,23 @@ private struct ISOImportView: View {
                 Button("Cancel", role: .cancel, action: onCancel)
                     .keyboardShortcut(.cancelAction)
                 Button("Import") {
-                    onImport(architecture)
+                    onImport(operatingSystem, architecture)
                 }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
             }
         }
         .padding(24)
-        .frame(width: 460, height: 240)
+        .frame(width: 480, height: 300)
         .onAppear {
+            operatingSystem = pendingImport.operatingSystem
             if case .architecture(let detected) = pendingImport.detection {
                 architecture = detected
+            }
+        }
+        .onChange(of: operatingSystem) { _, system in
+            if system == .windows {
+                architecture = .arm64
             }
         }
     }

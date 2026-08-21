@@ -8,6 +8,15 @@ enum MachineCreationSource: Hashable {
     case catalogEntry(String)
 }
 
+enum WindowsSupportToolsState: Equatable {
+    case notDownloaded
+    case downloading(progress: Double)
+    case verifying
+    case building
+    case ready(version: String)
+    case failed(message: String)
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -19,6 +28,8 @@ final class AppModel {
     private(set) var storageURL: URL?
     private(set) var isLoading = true
     private(set) var errorMessage: String?
+    private(set) var windowsSupportToolsState:
+        WindowsSupportToolsState = .notDownloaded
 
     @ObservationIgnored
     private var store: LibraryStore?
@@ -28,6 +39,9 @@ final class AppModel {
 
     @ObservationIgnored
     private var snapshotStore: SnapshotStore?
+
+    @ObservationIgnored
+    private var windowsSupportToolsManager: WindowsSupportToolsManager?
 
     @ObservationIgnored
     private var layout: StorageLayout?
@@ -70,6 +84,9 @@ final class AppModel {
             let imageStore = ManagedImageStore(layout: layout)
             let machineStore = ManagedMachineStore(layout: layout)
             let snapshotStore = SnapshotStore(layout: layout)
+            let windowsSupportToolsManager = WindowsSupportToolsManager(
+                layout: layout
+            )
             try await machineStore.removeOrphanedMachines(
                 referencedIDs: Set(snapshot.machines.map(\.id))
             )
@@ -120,6 +137,36 @@ final class AppModel {
                         backendState: files.1
                     )
                 ]
+            } else if ProcessInfo.processInfo.environment[
+                "SIMPLEVM_UI_TEST_WINDOWS"
+            ] == "1", machines.isEmpty {
+                let machineID = UUID()
+                let files = try await machineStore.createFiles(
+                    machineID: machineID,
+                    diskCapacityBytes: 1 * 1_024 * 1_024,
+                    backend: .qemu,
+                    operatingSystem: .windows
+                )
+                machines = [
+                    Machine(
+                        id: machineID,
+                        name: "Windows 11 Fixture",
+                        spec: MachineSpec(
+                            cpuCount: 4,
+                            memorySizeBytes: 8 * 1_024 * 1_024 * 1_024,
+                            diskSizeBytes: files.0.capacityBytes,
+                            architecture: .arm64,
+                            operatingSystem: .windows,
+                            qemuHardwareProfile: .windowsARM64()
+                        ),
+                        sourceImageID: UUID(),
+                        disk: files.0,
+                        provisioningState: .ready,
+                        bootMedia: .systemDisk,
+                        backend: .qemu,
+                        backendState: files.1
+                    )
+                ]
             }
             for machine in machines {
                 restoredSnapshots[machine.id] = try await snapshotStore.list(
@@ -143,9 +190,15 @@ final class AppModel {
             self.store = store
             self.machineStore = machineStore
             self.snapshotStore = snapshotStore
+            self.windowsSupportToolsManager = windowsSupportToolsManager
             self.layout = layout
             storageURL = layout.rootURL
             self.machines = machines
+            if await windowsSupportToolsManager.cachedURL() != nil {
+                windowsSupportToolsState = .ready(
+                    version: WindowsSupportToolsDescriptor.version
+                )
+            }
             snapshots = restoredSnapshots
             if library.images != snapshot.images || machines != snapshot.machines {
                 try await persist()
@@ -165,7 +218,9 @@ final class AppModel {
         rosettaEnabled: Bool = false,
         bootProfileID: String? = nil,
         portForwards: [PortForward] = [],
-        inputProfile: MachineInputProfile = .automatic
+        inputProfile: MachineInputProfile = .automatic,
+        displayMode: MachineDisplayMode = .automatic,
+        windowsSupportToolsAttached: Bool = true
     ) async throws -> UUID {
         guard let machineStore, let layout else {
             throw AppModelError.notInitialized
@@ -207,10 +262,34 @@ final class AppModel {
         guard let image = library.images.first(where: { $0.id == imageID }) else {
             throw AppModelError.imageUnavailable
         }
+        guard image.operatingSystem != .windows
+                || image.artifactKind == .installerISO else {
+            throw AppModelError.unsupportedWindowsImage
+        }
+        if image.operatingSystem == .windows {
+            guard cpuCount >= 2,
+                  memorySizeBytes >= 4 * 1_024 * 1_024 * 1_024,
+                  diskSizeBytes >= 64 * 1_024 * 1_024 * 1_024 else {
+                throw AppModelError.windowsRequirementsNotMet
+            }
+        }
+        if image.operatingSystem == .windows,
+           windowsSupportToolsAttached {
+            _ = try await prepareWindowsSupportTools()
+        }
         let machineID = UUID()
-        let backend: VirtualizationBackendKind = image.architecture == .arm64
-            ? .appleVirtualization
-            : .qemu
+        let backend = try VirtualizationBackendKind.resolve(
+            operatingSystem: image.operatingSystem,
+            architecture: image.architecture
+        )
+        guard !rosettaEnabled
+                || (
+                    image.operatingSystem == .linux
+                        && image.architecture == .arm64
+                        && backend == .appleVirtualization
+                ) else {
+            throw AppModelError.invalidRosettaConfiguration
+        }
         let baseDiskURL: URL?
         if image.artifactKind == .preinstalledDisk {
             baseDiskURL = try image.availableURL(layout: layout)
@@ -221,6 +300,7 @@ final class AppModel {
             machineID: machineID,
             diskCapacityBytes: diskSizeBytes,
             backend: backend,
+            operatingSystem: image.operatingSystem,
             baseDiskURL: baseDiskURL
         )
         do {
@@ -247,10 +327,18 @@ final class AppModel {
                     memorySizeBytes: memorySizeBytes,
                     diskSizeBytes: disk.capacityBytes,
                     architecture: image.architecture,
+                    operatingSystem: image.operatingSystem,
                     sharedDirectoryPath: sharedDirectoryPath,
                     rosettaEnabled: rosettaEnabled,
                     portForwards: portForwards,
-                    inputProfile: inputProfile
+                    inputProfile: inputProfile,
+                    qemuHardwareProfile: image.operatingSystem == .windows
+                        ? .windowsARM64()
+                        : nil,
+                    displayMode: displayMode,
+                    windowsSupportToolsAttached:
+                        image.operatingSystem == .windows
+                            && windowsSupportToolsAttached
                 ),
                 sourceImageID: imageID,
                 disk: disk,
@@ -430,7 +518,26 @@ final class AppModel {
         }
     }
 
-    func stopAllMachines() async {
+    func stopAllMachinesGracefully() async -> Bool {
+        for runtime in appleRuntimes.values {
+            await settleIfStarting(runtime)
+            if runtime.state == .running {
+                await runtime.requestStop()
+            }
+        }
+        for runtime in qemuRuntimes.values {
+            await settleIfStarting(runtime)
+            if runtime.state == .running || runtime.state == .stopping {
+                await runtime.stop()
+            }
+        }
+        for _ in 0..<600 where hasActiveMachines {
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+        return !hasActiveMachines
+    }
+
+    func forceStopAllMachines() async {
         for runtime in appleRuntimes.values {
             await settleIfStarting(runtime)
             switch runtime.state {
@@ -527,10 +634,16 @@ final class AppModel {
                         machine.spec.sharedDirectoryPath != nil
                 )
             case .qemu:
+                let supportToolsURL =
+                    machine.spec.operatingSystem == .windows
+                        && machine.spec.windowsSupportToolsAttached
+                    ? try await prepareWindowsSupportTools()
+                    : nil
                 await qemuRuntime(for: machine).start(
                     machine: machine,
                     diskURL: files.diskURL,
                     installerURL: installerURL,
+                    supportToolsURL: supportToolsURL,
                     backendStateURL: files.backendStateURL
                 )
             }
@@ -562,7 +675,15 @@ final class AppModel {
         case .appleVirtualization:
             await appleRuntime(for: machine).requestReboot()
         case .qemu:
-            await qemuRuntime(for: machine).requestReboot()
+            let runtime = qemuRuntime(for: machine)
+            if machine.spec.operatingSystem == .windows {
+                await runtime.stop()
+                if runtime.state == .stopped {
+                    await start(machine)
+                }
+            } else {
+                await runtime.requestReboot()
+            }
         }
     }
 
@@ -664,11 +785,17 @@ final class AppModel {
                 source: machine,
                 destinationID: cloneID
             )
+            var clonedSpec = machine.spec
+            if let profile = machine.spec.qemuHardwareProfile {
+                clonedSpec.qemuHardwareProfile = .windowsARM64(
+                    machineType: profile.machineType
+                )
+            }
             machines.append(
                 Machine(
                     id: cloneID,
                     name: "\(machine.name) Copy",
-                    spec: machine.spec,
+                    spec: clonedSpec,
                     sourceImageID: machine.sourceImageID,
                     disk: disk,
                     provisioningState: machine.provisioningState,
@@ -696,13 +823,57 @@ final class AppModel {
             return
         }
         let previousProfile = machines[index].spec.inputProfile
+        let previousCustomProfileID =
+            machines[index].spec.customInputProfileID
         machines[index].spec.inputProfile = profile
+        machines[index].spec.customInputProfileID = nil
         do {
             try await persist()
         } catch {
             updateMachine(id: machine.id) {
                 $0.spec.inputProfile = previousProfile
+                $0.spec.customInputProfileID = previousCustomProfileID
             }
+            present(error: error)
+        }
+    }
+
+    func setCustomInputProfile(
+        _ profile: CustomKeyboardProfile,
+        for machine: Machine
+    ) async {
+        guard let index = machines.firstIndex(where: {
+            $0.id == machine.id
+        }) else {
+            present(error: AppModelError.machineUnavailable)
+            return
+        }
+        let previousProfile = machines[index].spec.inputProfile
+        let previousCustomProfileID =
+            machines[index].spec.customInputProfileID
+        machines[index].spec.inputProfile = profile.baseProfile
+        machines[index].spec.customInputProfileID = profile.id
+        do {
+            try await persist()
+        } catch {
+            machines[index].spec.inputProfile = previousProfile
+            machines[index].spec.customInputProfileID =
+                previousCustomProfileID
+            present(error: error)
+        }
+    }
+
+    func removeCustomInputProfile(id: UUID) async {
+        let previous = machines
+        for index in machines.indices
+        where machines[index].spec.customInputProfileID == id {
+            machines[index].spec.customInputProfileID = nil
+            machines[index].spec.inputProfile = .automatic
+        }
+        do {
+            try await persist()
+        } catch {
+            machines = previous
             present(error: error)
         }
     }
@@ -731,10 +902,56 @@ final class AppModel {
         machines[index].spec.sharedDirectoryPath = path
         do {
             try await persist()
+            if machines[index].spec.operatingSystem == .windows,
+               let runtime = qemuRuntimes[machine.id] {
+                runtime.setSharedDirectory(path)
+            }
         } catch {
             updateMachine(id: machine.id) {
                 $0.spec.sharedDirectoryPath = previousPath
             }
+            present(error: error)
+        }
+    }
+
+    func setWindowsSupportToolsAttached(
+        _ attached: Bool,
+        for machine: Machine
+    ) async {
+        guard machine.spec.operatingSystem == .windows else { return }
+        guard ensureMachineIdle(machine) else { return }
+        guard let index = machines.firstIndex(where: { $0.id == machine.id }) else {
+            present(error: AppModelError.machineUnavailable)
+            return
+        }
+        let previous = machines[index].spec.windowsSupportToolsAttached
+        machines[index].spec.windowsSupportToolsAttached = attached
+        do {
+            if attached {
+                _ = try await prepareWindowsSupportTools()
+            }
+            try await persist()
+        } catch {
+            machines[index].spec.windowsSupportToolsAttached = previous
+            present(error: error)
+        }
+    }
+
+    func setDisplayMode(
+        _ mode: MachineDisplayMode,
+        for machine: Machine
+    ) async {
+        guard ensureMachineIdle(machine) else { return }
+        guard let index = machines.firstIndex(where: { $0.id == machine.id }) else {
+            present(error: AppModelError.machineUnavailable)
+            return
+        }
+        let previous = machines[index].spec.displayMode
+        machines[index].spec.displayMode = mode
+        do {
+            try await persist()
+        } catch {
+            machines[index].spec.displayMode = previous
             present(error: error)
         }
     }
@@ -795,6 +1012,48 @@ final class AppModel {
 
     func dismissError() {
         errorMessage = nil
+    }
+
+    func prepareWindowsSupportTools() async throws -> URL {
+        guard let windowsSupportToolsManager else {
+            throw AppModelError.notInitialized
+        }
+        do {
+            let url = try await windowsSupportToolsManager.prepare {
+                [weak self] phase in
+                Task { @MainActor in
+                    switch phase {
+                    case .downloading(let progress):
+                        self?.windowsSupportToolsState = .downloading(
+                            progress: progress
+                        )
+                    case .verifying:
+                        self?.windowsSupportToolsState = .verifying
+                    case .buildingSafeMedia:
+                        self?.windowsSupportToolsState = .building
+                    }
+                }
+            }
+            windowsSupportToolsState = .ready(
+                version: WindowsSupportToolsDescriptor.version
+            )
+            return url
+        } catch {
+            windowsSupportToolsState = .failed(
+                message: error.localizedDescription
+            )
+            throw error
+        }
+    }
+
+    func removeWindowsSupportToolsCache() async {
+        guard let windowsSupportToolsManager else { return }
+        do {
+            try await windowsSupportToolsManager.removeCachedMedia()
+            windowsSupportToolsState = .notDownloaded
+        } catch {
+            present(error: error)
+        }
     }
 
     func present(error: any Error) {
@@ -868,6 +1127,9 @@ enum AppModelError: LocalizedError {
     case machineMustBeStopped
     case invalidOCIReference
     case sharedDirectoryUnavailable
+    case unsupportedWindowsImage
+    case invalidRosettaConfiguration
+    case windowsRequirementsNotMet
 
     var errorDescription: String? {
         switch self {
@@ -893,6 +1155,12 @@ enum AppModelError: LocalizedError {
             "Enter a valid OCI image reference."
         case .sharedDirectoryUnavailable:
             "The selected shared directory is unavailable."
+        case .unsupportedWindowsImage:
+            "Windows 11 currently requires an ARM64 installer ISO."
+        case .invalidRosettaConfiguration:
+            "Rosetta is available only to ARM64 Linux machines using Apple Virtualization."
+        case .windowsRequirementsNotMet:
+            "Windows 11 requires at least 2 CPU cores, 4 GB of memory, and a 64 GB disk."
         }
     }
 }

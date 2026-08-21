@@ -10,6 +10,10 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
     private(set) var hasDisplay = false
     private(set) var requiresDiskPassword = false
     private(set) var usesAcceleratedDisplay = false
+    private(set) var windowsAgentConnected = false
+    private(set) var windowsClipboardAvailable = false
+    private(set) var windowsDisplayResizeAvailable = false
+    private(set) var windowsWebDAVAvailable = false
 
     @ObservationIgnored
     private(set) var framebuffer: CGImage?
@@ -25,6 +29,9 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
 
     @ObservationIgnored
     private var processController: QEMUProcessController?
+
+    @ObservationIgnored
+    private var softwareTPMController: SoftwareTPMProcessController?
 
     @ObservationIgnored
     private var vncClient: SimpleVNCClient?
@@ -53,15 +60,21 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
     @ObservationIgnored
     private var pressedModifierKeyCodes: Set<UInt16> = []
 
+    @ObservationIgnored
+    private var runtimeGeneration: UInt64 = 0
+
     func start(
         machine: Machine,
         diskURL: URL,
         installerURL: URL?,
+        supportToolsURL: URL?,
         backendStateURL: URL
     ) async {
         guard state.canStart else {
             return
         }
+        runtimeGeneration &+= 1
+        let generation = runtimeGeneration
         transition(to: .starting)
         diagnosticURL = backendStateURL.appending(path: "runtime.log")
         startSerialMonitor(
@@ -69,7 +82,10 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
         )
         log("starting")
         do {
-            let runtime = try discoverRuntime()
+            let runtime = try QEMURuntimeDiscovery.discover(
+                for: machine.spec.operatingSystem,
+                architecture: machine.spec.architecture
+            )
             log("QEMU discovered at \(runtime.systemExecutableURL.path)")
             let displaySize = preferredDisplaySize()
             log(
@@ -87,6 +103,7 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
                 machine: machine,
                 diskURL: diskURL,
                 installerURL: installerURL,
+                supportToolsURL: supportToolsURL,
                 backendStateURL: backendStateURL,
                 runtime: runtime,
                 vncPort: port,
@@ -95,10 +112,22 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
             log("configuration built")
             let controller = QEMUProcessController { [weak self] processState in
                 Task { @MainActor in
-                    self?.handle(processState: processState)
+                    self?.handle(
+                        processState: processState,
+                        generation: generation
+                    )
                 }
             }
+            if let softwareTPM = configuration.softwareTPM {
+                let tpmController = SoftwareTPMProcessController()
+                try await tpmController.start(configuration: softwareTPM)
+                softwareTPMController = tpmController
+                log("software TPM started")
+            }
             processController = controller
+            windowsWebDAVAvailable =
+                machine.spec.operatingSystem == .windows
+                    && machine.spec.sharedDirectoryPath != nil
             try await controller.start(configuration: configuration)
             log("QEMU process started")
             LoopbackPortAllocator.release(port)
@@ -122,6 +151,12 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
                 spice.errorHandler = { [weak self] error in
                     self?.errorHandler?(error)
                 }
+                spice.agentStateHandler = {
+                    [weak self] connected, clipboard, resize in
+                    self?.windowsAgentConnected = connected
+                    self?.windowsClipboardAvailable = clipboard
+                    self?.windowsDisplayResizeAvailable = resize
+                }
                 spice.clipboardNoticeHandler = { [weak self] message in
                     self?.guestTools.reportNotice(message)
                 }
@@ -140,12 +175,17 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
                         height: Int(size.height)
                     )
                 }
+                spice.sharedDirectoryPath = machine.spec.operatingSystem
+                    == .windows
+                    ? machine.spec.sharedDirectoryPath
+                    : nil
                 spiceController = spice
                 usesAcceleratedDisplay = true
                 try await spice.connect(to: socketURL)
                 log("SPICE GL connected")
             }
-            if let agentSocketURL = configuration.agentSocketURL {
+            if machine.spec.operatingSystem == .linux,
+               let agentSocketURL = configuration.agentSocketURL {
                 guestTools.statusHandler = { [weak self] status in
                     guard let self else { return }
                     self.spiceController?.setClipboardSharingAllowed(
@@ -174,6 +214,7 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
         } catch {
             log("start failed: \(error.localizedDescription)")
             await processController?.forceStop()
+            await softwareTPMController?.forceStop()
             clearRuntime()
             transition(to: .failed(message: error.localizedDescription))
         }
@@ -193,10 +234,27 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
             }
         }
         vncClient?.errorHandler = nil
-        vncClient?.disconnect()
-        await processController?.stop()
-        clearRuntime()
-        transition(to: .stopped)
+        spiceController?.errorHandler = nil
+        let result = await processController?.stop() ?? .stopped
+        switch result {
+        case .stopped:
+            await softwareTPMController?.stop()
+            clearRuntime()
+            transition(to: .stopped)
+        case .timedOut:
+            errorHandler?(QEMUShutdownError.timedOut)
+        case .requestFailed(let message):
+            transition(to: .running)
+            vncClient?.errorHandler = { [weak self] error in
+                Task { @MainActor in
+                    self?.errorHandler?(error)
+                }
+            }
+            spiceController?.errorHandler = { [weak self] error in
+                self?.errorHandler?(error)
+            }
+            errorHandler?(QEMUShutdownError.requestFailed(message))
+        }
     }
 
     func forceStop() async {
@@ -207,6 +265,7 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
         vncClient?.errorHandler = nil
         vncClient?.disconnect()
         await processController?.forceStop()
+        await softwareTPMController?.forceStop()
         clearRuntime()
         transition(to: .stopped)
     }
@@ -225,6 +284,10 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
         } else {
             vncClient?.sendPointer(mask: mask, x: x, y: y)
         }
+    }
+
+    func setSharedDirectory(_ path: String?) {
+        spiceController?.setSharedDirectory(path)
     }
 
     func requestDisplaySize(width: Int, height: Int) {
@@ -420,16 +483,41 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
         )
     }
 
-    private func handle(processState: QEMUProcessController.State) {
+    private func handle(
+        processState: QEMUProcessController.State,
+        generation: UInt64
+    ) {
+        guard generation == runtimeGeneration else { return }
         switch processState {
         case .stopped:
-            clearRuntime()
-            transition(to: .stopped)
+            finishAfterProcessExit(
+                state: .stopped,
+                generation: generation
+            )
         case .failed(let message):
-            clearRuntime()
-            transition(to: .failed(message: message))
+            finishAfterProcessExit(
+                state: .failed(message: message),
+                generation: generation
+            )
         case .starting, .running, .stopping:
             break
+        }
+    }
+
+    private func finishAfterProcessExit(
+        state: MachineRuntimeState,
+        generation: UInt64
+    ) {
+        guard generation == runtimeGeneration else { return }
+        let tpmController = softwareTPMController
+        softwareTPMController = nil
+        Task { [weak self] in
+            await tpmController?.stop()
+            guard let self, generation == self.runtimeGeneration else {
+                return
+            }
+            self.clearRuntime()
+            self.transition(to: state)
         }
     }
 
@@ -539,42 +627,15 @@ final class QEMUMachineRuntime: MachineRuntimeBase {
         spiceDisplayView = nil
         hasDisplay = false
         usesAcceleratedDisplay = false
+        windowsAgentConnected = false
+        windowsClipboardAvailable = false
+        windowsDisplayResizeAvailable = false
+        windowsWebDAVAvailable = false
         processController = nil
+        softwareTPMController = nil
         pressedKeysyms.removeAll()
         pressedModifierKeyCodes.removeAll()
         lastRequestedDisplaySize = nil
-    }
-
-    private func discoverRuntime() throws -> QEMURuntime {
-        let fallback = try QEMURuntimeDiscovery.discover()
-        let fileManager = FileManager.default
-        let helperURL = Bundle.main.bundleURL
-            .appending(path: "Contents/Helpers/UTMQEMULauncher")
-        let resourcesURL = URL(
-            filePath: "/Applications/UTM.app/Contents/Resources/qemu",
-            directoryHint: .isDirectory
-        )
-        let frameworkURL = URL(
-            filePath:
-                "/Applications/UTM.app/Contents/Frameworks/qemu-x86_64-softmmu.framework/qemu-x86_64-softmmu"
-        )
-        guard fileManager.isExecutableFile(atPath: helperURL.path),
-              fileManager.fileExists(atPath: frameworkURL.path) else {
-            return fallback
-        }
-        return QEMURuntime(
-            systemExecutableURL: helperURL,
-            imageExecutableURL: fallback.imageExecutableURL,
-            firmwareCodeURL: resourcesURL.appending(
-                path: "edk2-x86_64-code.fd"
-            ),
-            firmwareVariablesTemplateURL: resourcesURL.appending(
-                path: "edk2-i386-vars.fd"
-            ),
-            displayBackend: .spiceGL(
-                resourceDirectoryURL: resourcesURL
-            )
-        )
     }
 
     private func preferredDisplaySize() -> QEMUDisplaySize {
@@ -606,5 +667,19 @@ private enum QEMUVNCError: LocalizedError {
 
     var errorDescription: String? {
         "QEMU started but its display did not become available."
+    }
+}
+
+private enum QEMUShutdownError: LocalizedError {
+    case timedOut
+    case requestFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .timedOut:
+            "Windows is still shutting down. Wait, or use Force Power Off if it is unresponsive."
+        case .requestFailed(let message):
+            "Windows could not be asked to shut down: \(message)"
+        }
     }
 }

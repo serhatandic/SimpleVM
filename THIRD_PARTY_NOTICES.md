@@ -27,7 +27,19 @@ SimpleVM carries compatibility changes in:
 These projects are not relicensed by SimpleVM:
 
 - [UTM](https://github.com/utmapp/UTM), used for QEMU and SPICE frameworks
-- [QEMU](https://www.qemu.org/), used for x86_64 emulation and disk tooling
+- [QEMU](https://www.qemu.org/), used for Windows ARM64 virtualization,
+  x86_64 emulation, firmware, and disk tooling
+- [virtio-win](https://github.com/virtio-win/kvm-guest-drivers-windows),
+  whose signed ARM64 drivers are extracted locally from the pinned UTM support
+  image; its bundled license is preserved on generated media
+- [swtpm](https://github.com/stefanberger/swtpm) and
+  [libtpms](https://github.com/stefanberger/libtpms), used through UTM's
+  framework for Windows TPM 2.0
+- [SPICE](https://www.spice-space.org/) and
+  [phodav](https://gitlab.gnome.org/GNOME/phodav), used for Windows display,
+  clipboard, and WebDAV folder integration
+- [TianoCore EDK II](https://github.com/tianocore/edk2), supplied through UTM
+  for ARM UEFI and Secure Boot
 - [Karabiner-Elements](https://github.com/pqrs-org/Karabiner-Elements), used
   for optional virtual-HID keyboard remapping
 - [Apple containerization](https://github.com/apple/containerization), used

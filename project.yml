@@ -38,6 +38,8 @@ targets:
     dependencies:
       - package: SimpleVMCore
       - target: UTMQEMULauncher
+      - target: UTMQEMUARM64Launcher
+      - target: UTMSWTPMLauncher
       - package: CocoaSpice
         product: CocoaSpiceNoUsb
       - framework: /Applications/UTM.app/Contents/Frameworks/glib-2.0.0.framework
@@ -66,15 +68,23 @@ targets:
           - "@executable_path/../Frameworks"
           - "/Applications/UTM.app/Contents/Frameworks"
     postBuildScripts:
-      - name: Embed UTM QEMU launcher
+      - name: Embed UTM runtime helpers
         inputFiles:
           - "$(BUILT_PRODUCTS_DIR)/UTMQEMULauncher"
+          - "$(BUILT_PRODUCTS_DIR)/UTMQEMUARM64Launcher"
+          - "$(BUILT_PRODUCTS_DIR)/UTMSWTPMLauncher"
         outputFiles:
           - "$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/UTMQEMULauncher"
+          - "$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/UTMQEMUARM64Launcher"
+          - "$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Helpers/UTMSWTPMLauncher"
         script: |
           mkdir -p "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers"
           cp "$BUILT_PRODUCTS_DIR/UTMQEMULauncher" \
             "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/UTMQEMULauncher"
+          cp "$BUILT_PRODUCTS_DIR/UTMQEMUARM64Launcher" \
+            "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/UTMQEMUARM64Launcher"
+          cp "$BUILT_PRODUCTS_DIR/UTMSWTPMLauncher" \
+            "$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Helpers/UTMSWTPMLauncher"
 
   UTMQEMULauncher:
     type: tool
@@ -90,6 +100,44 @@ targets:
         CODE_SIGN_IDENTITY: "-"
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_ENTITLEMENTS: Config/UTMQEMULauncher.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "/Applications/UTM.app/Contents/Frameworks"
+
+  UTMQEMUARM64Launcher:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Tools/UTMQEMUARM64Launcher
+    dependencies:
+      - framework: /Applications/UTM.app/Contents/Frameworks/qemu-aarch64-softmmu.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.utm-qemu-arm64-launcher
+        PRODUCT_NAME: UTMQEMUARM64Launcher
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_ENTITLEMENTS: Config/UTMQEMUARM64Launcher.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        LD_RUNPATH_SEARCH_PATHS:
+          - "$(inherited)"
+          - "/Applications/UTM.app/Contents/Frameworks"
+
+  UTMSWTPMLauncher:
+    type: tool
+    platform: macOS
+    sources:
+      - path: Tools/UTMSWTPMLauncher
+    dependencies:
+      - framework: /Applications/UTM.app/Contents/Frameworks/swtpm.0.framework
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.simplevm.utm-swtpm-launcher
+        PRODUCT_NAME: UTMSWTPMLauncher
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_ENTITLEMENTS: Config/UTMSWTPMLauncher.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"

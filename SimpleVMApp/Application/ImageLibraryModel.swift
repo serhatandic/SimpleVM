@@ -73,10 +73,12 @@ final class ImageLibraryModel {
 
     func importISO(
         from sourceURL: URL,
+        operatingSystem: GuestOperatingSystem = .linux,
         architecture: GuestArchitecture
     ) async throws -> UUID {
         try await importImage(
             from: sourceURL,
+            operatingSystem: operatingSystem,
             architecture: architecture,
             artifactKind: .installerISO
         )
@@ -84,6 +86,7 @@ final class ImageLibraryModel {
 
     func importImage(
         from sourceURL: URL,
+        operatingSystem: GuestOperatingSystem = .linux,
         architecture: GuestArchitecture,
         artifactKind: ImageArtifactKind
     ) async throws -> UUID {
@@ -107,6 +110,7 @@ final class ImageLibraryModel {
             let image = MachineImage(
                 id: imageID,
                 name: sourceURL.deletingPathExtension().lastPathComponent,
+                operatingSystem: operatingSystem,
                 architecture: architecture,
                 artifactKind: artifactKind,
                 origin: .localImport(originalFileName: sourceURL.lastPathComponent),
@@ -137,6 +141,7 @@ final class ImageLibraryModel {
         }
         let image = MachineImage(
             name: trimmed,
+            operatingSystem: .linux,
             architecture: architecture,
             artifactKind: .ociReference,
             origin: .oci(trimmed),
@@ -164,6 +169,7 @@ final class ImageLibraryModel {
             id: imageID,
             name: entry.name,
             version: entry.version,
+            operatingSystem: entry.operatingSystem,
             architecture: entry.architecture,
             artifactKind: entry.artifactKind,
             origin: .catalog(entry.remoteURL),

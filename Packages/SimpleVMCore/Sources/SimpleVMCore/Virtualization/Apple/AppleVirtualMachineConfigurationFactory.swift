@@ -13,7 +13,8 @@ public enum AppleVirtualMachineConfigurationFactory {
         backendStateURL: URL,
         serialOutput: FileHandle? = nil
     ) throws -> VZVirtualMachineConfiguration {
-        guard machine.spec.architecture == .arm64 else {
+        guard machine.spec.operatingSystem == .linux,
+              machine.spec.architecture == .arm64 else {
             throw AppleConfigurationError.unsupportedArchitecture
         }
         let allowedCPUCounts = (
@@ -163,7 +164,7 @@ public enum AppleConfigurationError: LocalizedError, Equatable {
     public var errorDescription: String? {
         switch self {
         case .unsupportedArchitecture:
-            "Apple Virtualization supports ARM64 guests on this host."
+            "Apple Virtualization supports ARM64 Linux guests in SimpleVM."
         case .invalidCPUCount:
             "The selected CPU count is outside the host-supported range."
         case .invalidMemorySize:

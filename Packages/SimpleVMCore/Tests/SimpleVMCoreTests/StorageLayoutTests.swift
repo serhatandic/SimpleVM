@@ -93,6 +93,11 @@ func decodesExistingLibraryJSONWithAutomaticInputProfile() throws {
     var machines = try #require(json["machines"] as? [[String: Any]])
     var spec = try #require(machines[0]["spec"] as? [String: Any])
     spec.removeValue(forKey: "inputProfile")
+    spec.removeValue(forKey: "customInputProfileID")
+    spec.removeValue(forKey: "operatingSystem")
+    spec.removeValue(forKey: "qemuHardwareProfile")
+    spec.removeValue(forKey: "displayMode")
+    spec.removeValue(forKey: "windowsSupportToolsAttached")
     machines[0]["spec"] = spec
     json["machines"] = machines
     let existingData = try JSONSerialization.data(withJSONObject: json)
@@ -105,11 +110,64 @@ func decodesExistingLibraryJSONWithAutomaticInputProfile() throws {
     )
 
     #expect(decoded.machines[0].spec.inputProfile == .automatic)
+    #expect(decoded.machines[0].spec.customInputProfileID == nil)
+    #expect(decoded.machines[0].spec.operatingSystem == .linux)
+    #expect(decoded.machines[0].spec.qemuHardwareProfile == nil)
+    #expect(decoded.machines[0].spec.displayMode == .automatic)
+    #expect(!decoded.machines[0].spec.windowsSupportToolsAttached)
     #expect(
         decoded.machines[0].spec.inputProfile.resolved(
             forMachineNamed: decoded.machines[0].name
         ) == .macOSGNOME
     )
+}
+
+@Test
+func resolvesSupportedGuestPlatforms() throws {
+    #expect(
+        try VirtualizationBackendKind.resolve(
+            operatingSystem: .linux,
+            architecture: .arm64
+        ) == .appleVirtualization
+    )
+    #expect(
+        try VirtualizationBackendKind.resolve(
+            operatingSystem: .linux,
+            architecture: .x86_64
+        ) == .qemu
+    )
+    #expect(
+        try VirtualizationBackendKind.resolve(
+            operatingSystem: .windows,
+            architecture: .arm64
+        ) == .qemu
+    )
+    #expect(throws: GuestPlatformError.self) {
+        try VirtualizationBackendKind.resolve(
+            operatingSystem: .windows,
+            architecture: .x86_64
+        )
+    }
+}
+
+@Test
+func createsStableDistinctQEMUHardwareProfiles() {
+    let hardwareUUID = UUID(
+        uuidString: "12345678-1234-5678-9ABC-DEF012345678"
+    )!
+    let first = QEMUHardwareProfile.windowsARM64(
+        hardwareUUID: hardwareUUID
+    )
+    let same = QEMUHardwareProfile.windowsARM64(
+        hardwareUUID: hardwareUUID
+    )
+    let other = QEMUHardwareProfile.windowsARM64()
+
+    #expect(first == same)
+    #expect(first.machineType == "virt-10.0")
+    #expect(first.macAddress == "12:34:56:78:12:34")
+    #expect(other.hardwareUUID != first.hardwareUUID)
+    #expect(other.macAddress != first.macAddress)
 }
 
 @Test

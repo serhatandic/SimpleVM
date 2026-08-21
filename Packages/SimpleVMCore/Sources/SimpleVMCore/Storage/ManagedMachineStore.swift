@@ -32,6 +32,7 @@ public actor ManagedMachineStore {
         machineID: UUID,
         diskCapacityBytes: UInt64,
         backend: VirtualizationBackendKind,
+        operatingSystem: GuestOperatingSystem = .linux,
         baseDiskURL: URL? = nil
     ) throws -> (MachineDisk, BackendStateReference) {
         try layout.initialize(fileManager: fileManager)
@@ -42,7 +43,20 @@ public actor ManagedMachineStore {
         )
 
         do {
-            let diskURL = directoryURL.appending(path: "disk.raw")
+            let stateDirectoryURL: URL
+            if operatingSystem == .windows {
+                stateDirectoryURL = directoryURL.appending(
+                    path: "State/current",
+                    directoryHint: .isDirectory
+                )
+                try fileManager.createDirectory(
+                    at: stateDirectoryURL,
+                    withIntermediateDirectories: true
+                )
+            } else {
+                stateDirectoryURL = directoryURL
+            }
+            let diskURL = stateDirectoryURL.appending(path: "disk.raw")
             let capacity: UInt64
             if let baseDiskURL {
                 try APFSCloneStorage.clone(from: baseDiskURL, to: diskURL)
@@ -73,7 +87,7 @@ public actor ManagedMachineStore {
             case .qemu:
                 "QEMU"
             }
-            let backendStateURL = directoryURL.appending(
+            let backendStateURL = stateDirectoryURL.appending(
                 path: backendDirectoryName,
                 directoryHint: .isDirectory
             )
@@ -131,6 +145,7 @@ public actor ManagedMachineStore {
             machineID: destinationID,
             diskCapacityBytes: source.disk.capacityBytes,
             backend: source.backend,
+            operatingSystem: source.spec.operatingSystem,
             baseDiskURL: sourceLocations.diskURL
         )
         copyFirmwareState(
@@ -148,7 +163,9 @@ public actor ManagedMachineStore {
     ) {
         for fileName in [
             "efi-variable-store",
+            "efi-code.fd",
             "efi-vars.fd",
+            "tpm-state",
             AppleLinuxBootAssets.kernelFileName,
             AppleLinuxBootAssets.initialRamdiskFileName,
             AppleLinuxBootAssets.commandLineFileName
@@ -158,7 +175,15 @@ public actor ManagedMachineStore {
             guard fileManager.fileExists(atPath: sourceURL.path) else {
                 continue
             }
-            try? fileManager.copyItem(at: sourceURL, to: destinationURL)
+            if (try? APFSCloneStorage.clone(
+                from: sourceURL,
+                to: destinationURL
+            )) == nil {
+                try? fileManager.copyItem(
+                    at: sourceURL,
+                    to: destinationURL
+                )
+            }
         }
     }
 

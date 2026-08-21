@@ -4,24 +4,36 @@ import SwiftUI
 import Virtualization
 
 struct SettingsView: View {
-    let storageURL: URL?
+    @Bindable var model: AppModel
     @State private var mappingReference = MachineInputProfile.macOSGNOME
+    @State private var keyboardProfiles = KeyboardProfileStore.shared
 
     var body: some View {
         Form {
             Section("Storage") {
                 LabeledContent("Machine data") {
-                    Text(storageURL?.path(percentEncoded: false) ?? "Initializing…")
+                    Text(
+                        model.storageURL?.path(percentEncoded: false)
+                            ?? "Initializing…"
+                    )
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                 }
             }
             Section("Virtualization") {
                 LabeledContent(
-                    "Native ARM64",
+                    "ARM64 Linux",
                     value: "Apple Virtualization"
                 )
-                LabeledContent("x86_64 Compatibility") {
+                LabeledContent("Windows 11 ARM64") {
+                    Text(windowsRuntimeStatus)
+                        .foregroundStyle(
+                            windowsRuntimeAvailable
+                                ? Color.secondary
+                                : Color.red
+                        )
+                }
+                LabeledContent("x86_64 Linux") {
                     Text(qemuStatus)
                         .foregroundStyle(
                             qemuAvailable ? Color.secondary : Color.red
@@ -39,9 +51,33 @@ struct SettingsView: View {
                             helperAvailable ? Color.secondary : Color.red
                         )
                 }
-                LabeledContent("Rosetta") {
+                LabeledContent("Linux Rosetta") {
                     Text(rosettaStatus)
                         .foregroundStyle(.secondary)
+                }
+                LabeledContent("Windows support media") {
+                    HStack {
+                        Text(windowsToolsStatus)
+                            .foregroundStyle(.secondary)
+                        if case .ready = model.windowsSupportToolsState {
+                            Button("Remove") {
+                                Task {
+                                    await model.removeWindowsSupportToolsCache()
+                                }
+                            }
+                        } else {
+                            Button("Prepare") {
+                                Task {
+                                    do {
+                                        _ = try await model
+                                            .prepareWindowsSupportTools()
+                                    } catch {
+                                        model.present(error: error)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             Section {
@@ -82,6 +118,12 @@ struct SettingsView: View {
                         Text(profile.displayName).tag(profile)
                     }
                 }
+                Section("Custom Keyboard Profiles") {
+                    KeyboardProfileEditor(
+                        model: model,
+                        store: keyboardProfiles
+                    )
+                }
                 ForEach(
                     Array(
                         KeyboardMappingSettings.shared.mappingDescriptions(
@@ -99,7 +141,10 @@ struct SettingsView: View {
     }
 
     private var qemuAvailable: Bool {
-        (try? QEMURuntimeDiscovery.discover()) != nil
+        (try? QEMURuntimeDiscovery.discover(
+            for: .linux,
+            architecture: .x86_64
+        )) != nil
     }
 
     private var qemuStatus: String {
@@ -119,6 +164,36 @@ struct SettingsView: View {
 
     private var helperStatus: String {
         helperAvailable ? "Available" : "Run make build"
+    }
+
+    private var windowsRuntimeAvailable: Bool {
+        (try? QEMURuntimeDiscovery.discover(
+            for: .windows,
+            architecture: .arm64
+        )) != nil
+    }
+
+    private var windowsRuntimeStatus: String {
+        windowsRuntimeAvailable
+            ? "QEMU / HVF / TPM ready"
+            : "Install UTM and rebuild SimpleVM"
+    }
+
+    private var windowsToolsStatus: String {
+        switch model.windowsSupportToolsState {
+        case .notDownloaded:
+            "Not prepared"
+        case .downloading(let progress):
+            "Downloading \(Int(progress * 100))%"
+        case .verifying:
+            "Verifying"
+        case .building:
+            "Building safe ISO"
+        case .ready(let version):
+            "Ready (\(version))"
+        case .failed(let message):
+            "Error: \(message)"
+        }
     }
 
     private var rosettaStatus: String {

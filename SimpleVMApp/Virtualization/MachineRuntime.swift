@@ -181,6 +181,34 @@ final class MachineRuntime: MachineRuntimeBase {
         cgEvent.post(tap: .cghidEventTap)
     }
 
+    func sendInjectedKeyEvent(_ event: GuestKeyEvent) {
+        guard let displayView,
+              let source = CGEventSource(stateID: .hidSystemState),
+              let cgEvent = CGEvent(
+                  keyboardEventSource: source,
+                  virtualKey: CGKeyCode(event.keyCode),
+                  keyDown: event.isDown
+              ) else {
+            return
+        }
+        cgEvent.flags = cgFlags(from: event.modifiers)
+        cgEvent.setIntegerValueField(
+            .keyboardEventAutorepeat,
+            value: event.isRepeat ? 1 : 0
+        )
+        if event.isModifier {
+            cgEvent.type = .flagsChanged
+        }
+        guard let nsEvent = NSEvent(cgEvent: cgEvent) else { return }
+        if event.isModifier {
+            displayView.flagsChanged(with: nsEvent)
+        } else if event.isDown {
+            displayView.keyDown(with: nsEvent)
+        } else {
+            displayView.keyUp(with: nsEvent)
+        }
+    }
+
     func releaseAllKeys() {
         if let displayView {
             for event in pressedKeyEvents.values {

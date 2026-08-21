@@ -659,6 +659,147 @@ final class FoundationTests: XCTestCase {
         XCTAssertEqual(transmitted.map(\.1), [true, true, false, false])
     }
 
+    func testGuestTextEncoderProducesLiteralColonAndReturn() throws {
+        let chords = try GuestTextEncoder.chords(for: "fs0:\n")
+
+        XCTAssertEqual(chords.map(\.keyCode), [3, 1, 29, 41, 36])
+        XCTAssertEqual(chords[3].modifiers, [.shift])
+        XCTAssertTrue(chords[4].modifiers.isEmpty)
+    }
+
+    @MainActor
+    func testLiteralColonInjectionPressesAndReleasesShift() {
+        var events: [GuestKeyEvent] = []
+        let router = GuestInputRouter { events.append($0) }
+
+        router.sendChord(
+            GuestChord(keyCode: 41, modifiers: [.shift])
+        )
+
+        XCTAssertEqual(events.map(\.keyCode), [56, 41, 41, 56])
+        XCTAssertEqual(events.map(\.isDown), [true, true, false, false])
+        XCTAssertTrue(events.last?.modifiers.isEmpty == true)
+    }
+
+    @MainActor
+    func testCustomKeyboardProfileOverridesBuiltInMapping() throws {
+        let profile = CustomKeyboardProfile(
+            name: "Firmware",
+            baseProfile: .macOSWindows,
+            rules: "cmd+semicolon -> shift+semicolon"
+        )
+        let entries = try KeyboardProfileRuleParser.parse(profile.rules)
+        XCTAssertEqual(entries.count, 1)
+
+        let settings = KeyboardMappingSettings()
+        settings.activate(
+            profile: .macOSWindows,
+            forMachineNamed: "Windows",
+            customProfile: profile
+        )
+        let chord = settings.chord(
+            keyCode: 41,
+            modifiers: [.command]
+        )
+        XCTAssertEqual(chord.keyCode, 41)
+        XCTAssertEqual(chord.modifiers, [.shift])
+    }
+
+    @MainActor
+    func testCustomKeyboardProfileOverridesPassthroughMapping() {
+        let profile = CustomKeyboardProfile(
+            name: "Passthrough Override",
+            baseProfile: .linuxPassthrough,
+            rules: "cmd+semicolon -> shift+semicolon"
+        )
+        let settings = KeyboardMappingSettings()
+        settings.activate(
+            profile: .linuxPassthrough,
+            forMachineNamed: "Linux",
+            customProfile: profile
+        )
+
+        let chord = settings.chord(
+            keyCode: 41,
+            modifiers: [.command]
+        )
+
+        XCTAssertEqual(chord.keyCode, 41)
+        XCTAssertEqual(chord.modifiers, [.shift])
+    }
+
+    @MainActor
+    func testCustomKeyboardProfilesPersistAndValidate() throws {
+        let suiteName = "SimpleVMTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let store = KeyboardProfileStore(
+            defaults: defaults,
+            storageKey: "profiles"
+        )
+        let profile = try store.create(baseProfile: .macOSWindows)
+        try store.save(
+            id: profile.id,
+            name: "UEFI Input",
+            baseProfile: .macOSWindows,
+            rules: "cmd+semicolon -> shift+semicolon"
+        )
+
+        let restored = KeyboardProfileStore(
+            defaults: defaults,
+            storageKey: "profiles"
+        )
+        XCTAssertEqual(restored.profiles.count, 1)
+        XCTAssertEqual(restored.profiles[0].name, "UEFI Input")
+        XCTAssertThrowsError(
+            try restored.save(
+                id: profile.id,
+                name: "Broken",
+                baseProfile: .macOSWindows,
+                rules: "cmd+q guest+q"
+            )
+        )
+    }
+
+    @MainActor
+    func testUnknownStoredKeyboardProfilesSurviveUpdates() throws {
+        let suiteName = "SimpleVMTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let known = CustomKeyboardProfile(
+            name: "Known",
+            baseProfile: .macOSWindows
+        )
+        let knownObject = try JSONSerialization.jsonObject(
+            with: JSONEncoder().encode(known)
+        )
+        let futureObject: [String: Any] = [
+            "id": UUID().uuidString,
+            "name": "Future",
+            "baseProfile": "futureProfile",
+            "rules": ""
+        ]
+        defaults.set(
+            try JSONSerialization.data(
+                withJSONObject: [knownObject, futureObject]
+            ),
+            forKey: "profiles"
+        )
+        let store = KeyboardProfileStore(
+            defaults: defaults,
+            storageKey: "profiles"
+        )
+        XCTAssertEqual(store.profiles.map(\.name), ["Known"])
+
+        _ = try store.create(baseProfile: .macOSGNOME)
+
+        let storedData = try XCTUnwrap(defaults.data(forKey: "profiles"))
+        let storedObjects = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: storedData) as? [Any]
+        )
+        XCTAssertEqual(storedObjects.count, 3)
+    }
+
     @MainActor
     func testKarabinerRuleContainsCriticalVZMappings() throws {
         let manipulators = try XCTUnwrap(
@@ -720,6 +861,21 @@ final class FoundationTests: XCTestCase {
             hyprlandManipulators.count,
             KeyboardMappingSettings.mappingEntries(for: .hyprland).count
         )
+
+        let customEntries = try KeyboardProfileRuleParser.parse(
+            """
+            cmd+semicolon -> shift+semicolon
+            cmd+escape -> escape
+            cmd+f10 -> f10
+            """
+        )
+        let customRule = try KarabinerInputBridge.generatedRule(
+            entries: customEntries
+        )
+        let customManipulators = try XCTUnwrap(
+            customRule["manipulators"] as? [[String: Any]]
+        )
+        XCTAssertEqual(customManipulators.count, 3)
 
         let payload = KarabinerInputBridge.variablePayload(active: true)
         let payloadObject = try XCTUnwrap(
@@ -1868,6 +2024,52 @@ final class FoundationTests: XCTestCase {
             console.contains("Linux version") || console.contains("Alpine"),
             "Expected Linux boot output, received: \(console.suffix(500))"
         )
+    }
+
+    @MainActor
+    func testCreatesWindowsARMQEMUMachineWithStableHardwareState() async throws {
+        let storageURL = FileManager.default.temporaryDirectory.appending(
+            path: UUID().uuidString,
+            directoryHint: .isDirectory
+        )
+        defer { try? FileManager.default.removeItem(at: storageURL) }
+        let sourceURL = FileManager.default.temporaryDirectory.appending(
+            path: "\(UUID().uuidString).iso"
+        )
+        defer { try? FileManager.default.removeItem(at: sourceURL) }
+        try Data("windows-arm64".utf8).write(to: sourceURL)
+        let model = AppModel(storageRootURL: storageURL)
+        await model.initialize()
+        let imageID = try await model.library.importISO(
+            from: sourceURL,
+            operatingSystem: .windows,
+            architecture: .arm64
+        )
+
+        let machineID = try await model.createMachine(
+            name: "Windows 11",
+            cpuCount: 4,
+            memorySizeBytes: 8 * 1_024 * 1_024 * 1_024,
+            diskSizeBytes: 64 * 1_024 * 1_024 * 1_024,
+            source: .managedImage(imageID),
+            sharedDirectoryPath: nil,
+            windowsSupportToolsAttached: false
+        )
+        let machines = model.machines
+        let machine = try XCTUnwrap(machines.first { $0.id == machineID })
+
+        XCTAssertEqual(machine.spec.operatingSystem, .windows)
+        XCTAssertEqual(machine.spec.architecture, .arm64)
+        XCTAssertEqual(machine.backend, .qemu)
+        XCTAssertEqual(
+            machine.spec.qemuHardwareProfile?.machineType,
+            "virt-10.0"
+        )
+        XCTAssertNotNil(machine.spec.qemuHardwareProfile?.hardwareUUID)
+        XCTAssertTrue(machine.disk.relativePath.contains("State/current"))
+        XCTAssertTrue(machine.backendState.relativeDirectory.contains(
+            "State/current/QEMU"
+        ))
     }
 
     private func fixturePath(environmentKey: String) -> String? {

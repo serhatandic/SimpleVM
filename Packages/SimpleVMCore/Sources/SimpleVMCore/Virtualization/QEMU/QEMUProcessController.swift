@@ -1,6 +1,12 @@
 import Darwin
 import Foundation
 
+public enum QEMUStopResult: Equatable, Sendable {
+    case stopped
+    case timedOut
+    case requestFailed(String)
+}
+
 public actor QEMUProcessController {
     public enum State: Equatable, Sendable {
         case stopped
@@ -59,37 +65,52 @@ public actor QEMUProcessController {
         }
     }
 
-    public func stop() async {
+    public func stop(
+        gracePeriod: Duration = .seconds(300)
+    ) async -> QEMUStopResult {
         guard let process else {
-            return
+            return .stopped
         }
         transition(to: .stopping)
         expectsTermination = true
-        var requestedGuestShutdown = false
-        if let qmpSocketURL,
-           FileManager.default.fileExists(atPath: qmpSocketURL.path) {
-            do {
-                try sendQMPPowerDown(socketURL: qmpSocketURL)
-                requestedGuestShutdown = true
-            } catch {
-                requestedGuestShutdown = false
-            }
+        guard let qmpSocketURL,
+              FileManager.default.fileExists(atPath: qmpSocketURL.path) else {
+            expectsTermination = false
+            transition(to: .running)
+            return .requestFailed("QEMU control is unavailable.")
         }
-        if requestedGuestShutdown {
-            for _ in 0..<100 where process.isRunning {
-                try? await Task.sleep(for: .milliseconds(100))
-            }
+        do {
+            try sendQMPCommand(
+                #"{"execute":"system_powerdown"}"#,
+                socketURL: qmpSocketURL
+            )
+        } catch {
+            expectsTermination = false
+            transition(to: .running)
+            return .requestFailed(error.localizedDescription)
         }
-        if process.isRunning {
-            process.terminate()
+
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: gracePeriod)
+        while process.isRunning, clock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(100))
         }
-        await withCheckedContinuation { continuation in
-            Task.detached {
-                process.waitUntilExit()
-                continuation.resume()
-            }
+        guard !process.isRunning else {
+            return .timedOut
         }
         completeExpectedTermination(of: process)
+        return .stopped
+    }
+
+    public func reset() throws {
+        guard let qmpSocketURL,
+              FileManager.default.fileExists(atPath: qmpSocketURL.path) else {
+            throw QEMUProcessError.controlUnavailable
+        }
+        try sendQMPCommand(
+            #"{"execute":"system_reset"}"#,
+            socketURL: qmpSocketURL
+        )
     }
 
     public func forceStop() async {
@@ -143,7 +164,10 @@ public actor QEMUProcessController {
         stateHandler(state)
     }
 
-    private func sendQMPPowerDown(socketURL: URL) throws {
+    private func sendQMPCommand(
+        _ command: String,
+        socketURL: URL
+    ) throws {
         let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
         guard descriptor >= 0 else {
             throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
@@ -182,10 +206,8 @@ public actor QEMUProcessController {
             descriptor: descriptor
         )
         _ = try readQMPLine(descriptor: descriptor)
-        try writeQMP(
-            #"{"execute":"system_powerdown"}"#,
-            descriptor: descriptor
-        )
+        try writeQMP(command, descriptor: descriptor)
+        _ = try readQMPLine(descriptor: descriptor)
     }
 
     private func writeQMP(_ command: String, descriptor: Int32) throws {
@@ -227,6 +249,7 @@ public actor QEMUProcessController {
 
 public enum QEMUProcessError: LocalizedError, Equatable {
     case alreadyRunning
+    case controlUnavailable
     case socketPathTooLong
     case invalidQMPResponse
 
@@ -234,6 +257,8 @@ public enum QEMUProcessError: LocalizedError, Equatable {
         switch self {
         case .alreadyRunning:
             "The QEMU machine is already running."
+        case .controlUnavailable:
+            "QEMU control is unavailable."
         case .socketPathTooLong:
             "The QEMU control socket path is too long."
         case .invalidQMPResponse:

@@ -26,3 +26,16 @@ Include:
 - Any known mitigations
 
 No response-time or disclosure-time guarantee is currently offered.
+
+## Windows guest boundary
+
+SimpleVM verifies the pinned UTM support ISO before deriving Windows media.
+Only allowlisted signed ARM64 drivers, licenses, and the user-invoked UTM tools
+installer are copied. The original UTM unattended policy is never mounted.
+SimpleVM's answer file is limited to driver staging and contains no product key,
+credentials, hardware-check bypass, OOBE policy, activation command, or
+first-logon execution.
+
+The virtual TPM protects guest state from ordinary guest access, not from the
+macOS account that owns the VM files. Save the Windows BitLocker recovery key
+outside the VM before snapshots, clones, or disk-only exports.

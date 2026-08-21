@@ -9,8 +9,12 @@ struct MachineDetailView: View {
     let immersion: ImmersionController
 
     @State private var confirmsDeletion = false
+    @State private var confirmsForceStop = false
     @State private var showsGuestTools = false
     @State private var deliveredToolsMessage: String?
+    @State private var pendingWindowsOperation: WindowsProtectedOperation?
+    @State private var keyboardProfiles = KeyboardProfileStore.shared
+    @State private var showsKeystrokePanel = false
 
     private var runtimeState: MachineRuntimeState {
         model.runtimeState(for: machine)
@@ -70,6 +74,13 @@ struct MachineDetailView: View {
             } else {
                 VStack(spacing: 0) {
                     display
+                    if showsKeystrokePanel {
+                        Divider()
+                        VMKeystrokePanel(
+                            isRunning: runtimeState == .running,
+                            sendChord: sendInjectedChord
+                        )
+                    }
                     Divider()
                     statusBar
                 }
@@ -78,6 +89,16 @@ struct MachineDetailView: View {
         .navigationTitle(machine.name)
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    showsKeystrokePanel.toggle()
+                } label: {
+                    Label(
+                        "Send Keystrokes",
+                        systemImage: "keyboard.badge.ellipsis"
+                    )
+                }
+                .keyboardShortcut("k", modifiers: [.command, .shift])
+                .accessibilityIdentifier("vmInput.toggle")
                 lifecycleControls
                 Button {
                     enterImmersion()
@@ -91,15 +112,13 @@ struct MachineDetailView: View {
                 .disabled(runtimeState != .running)
                 Menu {
                     if runtimeState == .running || runtimeState == .stopping {
-                        Button("Force Stop", role: .destructive) {
-                            Task {
-                                await model.forceStop(machine)
-                            }
+                        Button("Force Power Off…", role: .destructive) {
+                            confirmsForceStop = true
                         }
                         Divider()
                     }
                     Menu("Desktop and Input Profile") {
-                        ForEach(MachineInputProfile.allCases) { profile in
+                        ForEach(availableInputProfiles) { profile in
                             Button {
                                 Task {
                                     await model.setInputProfile(
@@ -108,7 +127,8 @@ struct MachineDetailView: View {
                                     )
                                 }
                             } label: {
-                                if machine.spec.inputProfile == profile {
+                                if machine.spec.customInputProfileID == nil,
+                                   machine.spec.inputProfile == profile {
                                     Label(
                                         profile.displayName,
                                         systemImage: "checkmark"
@@ -124,8 +144,35 @@ struct MachineDetailView: View {
                                 "Active: \(resolvedInputProfile.displayName)"
                             )
                         }
+                        if !keyboardProfiles.profiles.isEmpty {
+                            Divider()
+                            ForEach(keyboardProfiles.profiles) { profile in
+                                Button {
+                                    Task {
+                                        await model.setCustomInputProfile(
+                                            profile,
+                                            for: machine
+                                        )
+                                    }
+                                } label: {
+                                    if machine.spec.customInputProfileID
+                                        == profile.id {
+                                        Label(
+                                            profile.name,
+                                            systemImage: "checkmark"
+                                        )
+                                    } else {
+                                        Text(profile.name)
+                                    }
+                                }
+                            }
+                        }
                     }
-                    Button("Guest Tools Setup...") {
+                    Button(
+                        machine.spec.operatingSystem == .windows
+                            ? "Windows Integration..."
+                            : "Guest Tools Setup..."
+                    ) {
                         showsGuestTools = true
                     }
                     if machine.hasInstallerAttached {
@@ -136,20 +183,21 @@ struct MachineDetailView: View {
                         }
                         .disabled(diskOperationsDisabled)
                     }
-                    Button("Create Snapshot") {
-                        Task {
-                            await model.createSnapshot(machine)
+                    if sourceInstallerImage != nil {
+                        Button("Export Source ISO…") {
+                            exportSourceISO()
                         }
+                    }
+                    Button("Create Snapshot") {
+                        performProtected(.snapshot)
                     }
                     .disabled(diskOperationsDisabled)
                     Button("Clone Machine") {
-                        Task {
-                            await model.cloneMachine(machine)
-                        }
+                        performProtected(.clone)
                     }
                     .disabled(diskOperationsDisabled)
                     Button {
-                        exportDisk()
+                        performProtected(.exportDisk)
                     } label: {
                         Label(
                             model.exportingMachineIDs.contains(machine.id)
@@ -218,26 +266,81 @@ struct MachineDetailView: View {
         } message: {
             Text("Its virtual disk and machine state will be permanently removed.")
         }
-        .popover(isPresented: $showsGuestTools) {
-            GuestToolsPanel(
-                machine: machine,
-                runtimeState: runtimeState,
-                state: guestTools.state,
-                notice: guestTools.notice,
-                deliveredMessage: deliveredToolsMessage,
-                retry: {
-                    guestTools.retry()
-                },
-                exportBundle: exportGuestTools,
-                copyToShare: copyGuestToolsToShare,
-                chooseShare: chooseSharedFolder,
-                removeShare: removeSharedFolder,
-                reboot: {
-                    Task {
-                        await model.requestReboot(machine)
-                    }
+        .confirmationDialog(
+            "Force power off \(machine.name)?",
+            isPresented: $confirmsForceStop,
+            titleVisibility: .visible
+        ) {
+            Button("Force Power Off", role: .destructive) {
+                Task {
+                    await model.forceStop(machine)
                 }
+            }
+        } message: {
+            Text(
+                "This cuts power immediately and can corrupt the guest disk, Windows updates, EFI variables, or TPM state."
             )
+        }
+        .confirmationDialog(
+            "Save the Windows recovery key first",
+            isPresented: windowsProtectionBinding,
+            titleVisibility: .visible
+        ) {
+            Button("I Saved the Recovery Key") {
+                UserDefaults.standard.set(
+                    true,
+                    forKey: windowsRecoveryAcknowledgmentKey
+                )
+                if let operation = pendingWindowsOperation {
+                    execute(operation)
+                }
+                pendingWindowsOperation = nil
+            }
+            Button("Cancel", role: .cancel) {
+                pendingWindowsOperation = nil
+            }
+        } message: {
+            Text(
+                "Windows can enable Device Encryption automatically. Snapshots, clones, and disk-only exports may require the BitLocker recovery key after virtual hardware or TPM state changes. SimpleVM never collects the key."
+            )
+        }
+        .popover(isPresented: $showsGuestTools) {
+            if machine.spec.operatingSystem == .windows {
+                WindowsIntegrationPanel(
+                    model: model,
+                    machine: machine,
+                    runtimeState: runtimeState,
+                    runtime: model.qemuRuntime(for: machine),
+                    notice: deliveredToolsMessage,
+                    chooseShare: chooseSharedFolder,
+                    removeShare: removeSharedFolder,
+                    restart: {
+                        Task {
+                            await model.requestReboot(machine)
+                        }
+                    }
+                )
+            } else {
+                GuestToolsPanel(
+                    machine: machine,
+                    runtimeState: runtimeState,
+                    state: guestTools.state,
+                    notice: guestTools.notice,
+                    deliveredMessage: deliveredToolsMessage,
+                    retry: {
+                        guestTools.retry()
+                    },
+                    exportBundle: exportGuestTools,
+                    copyToShare: copyGuestToolsToShare,
+                    chooseShare: chooseSharedFolder,
+                    removeShare: removeSharedFolder,
+                    reboot: {
+                        Task {
+                            await model.requestReboot(machine)
+                        }
+                    }
+                )
+            }
         }
     }
 
@@ -327,6 +430,20 @@ struct MachineDetailView: View {
                     stoppedContent
                 }
             }
+            if machine.spec.operatingSystem == .windows,
+               machine.hasInstallerAttached,
+               runtimeState == .running {
+                Text(
+                    "Click inside the display and press any key now to start Windows Setup."
+                )
+                .font(.callout.weight(.medium))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.ultraThickMaterial, in: Capsule())
+                .padding(.top, 18)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .accessibilityIdentifier("windows.firstBootPrompt")
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -348,6 +465,17 @@ struct MachineDetailView: View {
                 ProgressView(value: progress)
                     .frame(width: 260)
                     .accessibilityValue("\(Int(progress * 100)) percent")
+            }
+            if machine.spec.operatingSystem == .windows,
+               machine.hasInstallerAttached,
+               machine.provisioningState == .installing {
+                Button("Windows Is Installed — Eject Installer") {
+                    Task {
+                        await model.ejectInstaller(machine)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .accessibilityIdentifier("windows.ejectInstaller")
             }
         }
         .foregroundStyle(.white.opacity(0.82))
@@ -379,15 +507,25 @@ struct MachineDetailView: View {
                 showsGuestTools.toggle()
             } label: {
                 StatusValue(
-                    title: "Guest Tools",
-                    value: guestToolsStatus
+                    title: machine.spec.operatingSystem == .windows
+                        ? "Integration"
+                        : "Guest Tools",
+                    value: machine.spec.operatingSystem == .windows
+                        ? windowsIntegrationStatus
+                        : guestToolsStatus
                 )
             }
             .buttonStyle(.plain)
             .accessibilityLabel(
-                "Guest Tools status: \(guestToolsStatus)"
+                machine.spec.operatingSystem == .windows
+                    ? "Windows integration status: \(windowsIntegrationStatus)"
+                    : "Guest Tools status: \(guestToolsStatus)"
             )
-            .accessibilityIdentifier("guestTools.status")
+            .accessibilityIdentifier(
+                machine.spec.operatingSystem == .windows
+                    ? "windowsIntegration.status"
+                    : "guestTools.status"
+            )
             StatusValue(title: "Network", value: "Shared NAT")
             Spacer()
         }
@@ -397,9 +535,11 @@ struct MachineDetailView: View {
     }
 
     private func enterImmersion() {
+        showsKeystrokePanel = false
         KeyboardMappingSettings.shared.activate(
             profile: resolvedInputProfile,
-            forMachineNamed: machine.name
+            forMachineNamed: machine.name,
+            customProfile: selectedCustomInputProfile
         )
         switch machine.backend {
         case .appleVirtualization:
@@ -435,26 +575,59 @@ struct MachineDetailView: View {
         }
     }
 
+    private func sendInjectedChord(_ chord: GuestChord) {
+        let router: GuestInputRouter
+        switch machine.backend {
+        case .appleVirtualization:
+            let runtime = model.appleRuntime(for: machine)
+            router = GuestInputRouter { event in
+                runtime.sendInjectedKeyEvent(event)
+            }
+        case .qemu:
+            let runtime = model.qemuRuntime(for: machine)
+            router = GuestInputRouter { event in
+                runtime.sendGuestKeyEvent(event)
+            }
+        }
+        router.sendChord(chord)
+    }
+
     private var resolvedInputProfile: MachineInputProfile {
         switch machine.backend {
         case .appleVirtualization:
             model.appleRuntime(for: machine).guestTools.resolvedInputProfile(
                 configuredProfile: machine.spec.inputProfile,
-                machineName: machine.name
+                machineName: machine.name,
+                operatingSystem: machine.spec.operatingSystem
             )
         case .qemu:
             model.qemuRuntime(for: machine).guestTools.resolvedInputProfile(
                 configuredProfile: machine.spec.inputProfile,
-                machineName: machine.name
+                machineName: machine.name,
+                operatingSystem: machine.spec.operatingSystem
             )
         }
     }
 
     private var inputProfileStatus: String {
+        if let selectedCustomInputProfile {
+            return selectedCustomInputProfile.name
+        }
         if machine.spec.inputProfile == .automatic {
             return "Automatic (\(resolvedInputProfile.displayName))"
         }
         return resolvedInputProfile.displayName
+    }
+
+    private var selectedCustomInputProfile: CustomKeyboardProfile? {
+        keyboardProfiles.profile(id: machine.spec.customInputProfileID)
+    }
+
+    private var availableInputProfiles: [MachineInputProfile] {
+        if machine.spec.operatingSystem == .windows {
+            return [.automatic, .macOSWindows]
+        }
+        return MachineInputProfile.allCases.filter { $0 != .macOSWindows }
     }
 
     private var guestTools: GuestToolsCoordinator {
@@ -481,6 +654,16 @@ struct MachineDetailView: View {
         case .failed:
             "Error"
         }
+    }
+
+    private var windowsIntegrationStatus: String {
+        let runtime = model.qemuRuntime(for: machine)
+        if runtime.windowsAgentConnected {
+            return "Connected"
+        }
+        return machine.spec.windowsSupportToolsAttached
+            ? "Tools attached"
+            : "Not attached"
     }
 
     private func exportGuestTools() {
@@ -524,8 +707,17 @@ struct MachineDetailView: View {
             await model.setSharedDirectory(path, for: machine)
             if model.machines.first(where: { $0.id == machine.id })?
                 .spec.sharedDirectoryPath == path {
-                deliveredToolsMessage =
-                    "Configured \(url.lastPathComponent) as the shared folder. Restart the VM to attach it, then copy the tools bundle."
+                if machine.spec.operatingSystem == .windows {
+                    let live = runtimeState == .running
+                        && model.qemuRuntime(for: machine)
+                            .windowsWebDAVAvailable
+                    deliveredToolsMessage = live
+                        ? "Sharing \(url.lastPathComponent) through SPICE WebDAV."
+                        : "Configured \(url.lastPathComponent). Restart Windows to attach the WebDAV channel."
+                } else {
+                    deliveredToolsMessage =
+                        "Configured \(url.lastPathComponent) as the shared folder. Restart the VM to attach it, then copy the tools bundle."
+                }
             }
         }
     }
@@ -535,8 +727,13 @@ struct MachineDetailView: View {
             await model.setSharedDirectory(nil, for: machine)
             if model.machines.first(where: { $0.id == machine.id })?
                 .spec.sharedDirectoryPath == nil {
-                deliveredToolsMessage =
-                    "The shared folder will be detached the next time this VM starts."
+                let revokedLive = machine.spec.operatingSystem == .windows
+                    && runtimeState == .running
+                    && model.qemuRuntime(for: machine)
+                        .windowsWebDAVAvailable
+                deliveredToolsMessage = revokedLive
+                    ? "Shared-folder access was removed from the running Windows session."
+                    : "The shared folder will be detached the next time this VM starts."
             }
         }
     }
@@ -566,6 +763,80 @@ struct MachineDetailView: View {
             } catch {
                 model.present(error: error)
             }
+        }
+    }
+
+    private var sourceInstallerImage: MachineImage? {
+        model.library.images.first {
+            $0.id == machine.sourceImageID
+                && $0.artifactKind == .installerISO
+                && $0.availability.isAvailable
+        }
+    }
+
+    private func exportSourceISO() {
+        guard let image = sourceInstallerImage,
+              let suggestedName = image.suggestedExportFileName,
+              let destinationURL = FilePicker.chooseSaveFile(
+                  suggestedName: suggestedName,
+                  allowedContentType:
+                      UTType(filenameExtension: "iso") ?? .data
+              ) else {
+            return
+        }
+        Task {
+            do {
+                try await model.library.exportImage(
+                    image,
+                    to: destinationURL
+                )
+                NSWorkspace.shared.activateFileViewerSelecting(
+                    [destinationURL]
+                )
+            } catch {
+                model.present(error: error)
+            }
+        }
+    }
+
+    private var windowsProtectionBinding: Binding<Bool> {
+        Binding(
+            get: { pendingWindowsOperation != nil },
+            set: { presented in
+                if !presented {
+                    pendingWindowsOperation = nil
+                }
+            }
+        )
+    }
+
+    private var windowsRecoveryAcknowledgmentKey: String {
+        "windowsRecoveryKeySaved.\(machine.id.uuidString)"
+    }
+
+    private func performProtected(_ operation: WindowsProtectedOperation) {
+        guard machine.spec.operatingSystem == .windows,
+              !UserDefaults.standard.bool(
+                forKey: windowsRecoveryAcknowledgmentKey
+              ) else {
+            execute(operation)
+            return
+        }
+        pendingWindowsOperation = operation
+    }
+
+    private func execute(_ operation: WindowsProtectedOperation) {
+        switch operation {
+        case .snapshot:
+            Task {
+                await model.createSnapshot(machine)
+            }
+        case .clone:
+            Task {
+                await model.cloneMachine(machine)
+            }
+        case .exportDisk:
+            exportDisk()
         }
     }
 
@@ -599,11 +870,9 @@ struct MachineDetailView: View {
                 }
             case .stopping:
                 Button {
-                    Task {
-                        await model.forceStop(machine)
-                    }
+                    confirmsForceStop = true
                 } label: {
-                    Label("Force Stop", systemImage: "stop.fill")
+                    Label("Force Power Off…", systemImage: "stop.fill")
                 }
             case .starting:
                 ProgressView()
@@ -612,6 +881,12 @@ struct MachineDetailView: View {
             }
         }
     }
+}
+
+private enum WindowsProtectedOperation {
+    case snapshot
+    case clone
+    case exportDisk
 }
 
 private struct StatusValue: View {

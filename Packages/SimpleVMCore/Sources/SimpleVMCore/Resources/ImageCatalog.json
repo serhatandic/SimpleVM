@@ -3,6 +3,7 @@
     "id": "ubuntu-desktop-26.04-arm64",
     "name": "Ubuntu Desktop",
     "version": "26.04 LTS",
+    "operatingSystem": "linux",
     "architecture": "arm64",
     "artifactKind": "installerISO",
     "remoteURL": "https://cdimage.ubuntu.com/ubuntu/releases/26.04/release/ubuntu-26.04-desktop-arm64.iso",

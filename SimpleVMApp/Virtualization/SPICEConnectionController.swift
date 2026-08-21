@@ -13,7 +13,9 @@ final class SPICEConnectionController: NSObject {
     var displayHandler: ((CSDisplay) -> Void)?
     var displayResizeSupportHandler: ((Bool) -> Void)?
     var clipboardNoticeHandler: ((String) -> Void)?
+    var agentStateHandler: ((Bool, Bool, Bool) -> Void)?
     var errorHandler: ((any Error) -> Void)?
+    var sharedDirectoryPath: String?
 
     private var connection: CSConnection?
     private var connectionContinuation:
@@ -66,6 +68,12 @@ final class SPICEConnectionController: NSObject {
         }
         connection.session.pasteboardDelegate = pasteboardBridge
         connection.session.shareClipboard = false
+        if let sharedDirectoryPath {
+            connection.session.setSharedDirectory(
+                sharedDirectoryPath,
+                readOnly: false
+            )
+        }
         connection.delegate = self
         self.connection = connection
         return connection
@@ -98,11 +106,32 @@ final class SPICEConnectionController: NSObject {
         input = nil
         supportsDisplayResize = false
         supportsClipboard = false
+        agentStateHandler?(false, false, false)
     }
 
     func setClipboardSharingAllowed(_ allowed: Bool) {
         clipboardSharingAllowed = allowed
         updateClipboardSharing()
+    }
+
+    func setSharedDirectory(_ path: String?) {
+        sharedDirectoryPath = path
+        if let path {
+            connection?.session.setSharedDirectory(path, readOnly: false)
+        } else {
+            let disabledURL = FileManager.default.temporaryDirectory.appending(
+                path: "SimpleVM-Disabled-Share",
+                directoryHint: .isDirectory
+            )
+            try? FileManager.default.createDirectory(
+                at: disabledURL,
+                withIntermediateDirectories: true
+            )
+            connection?.session.setSharedDirectory(
+                disabledURL.path,
+                readOnly: true
+            )
+        }
     }
 
     func sendKey(_ event: GuestKeyEvent) {
@@ -271,6 +300,7 @@ extension SPICEConnectionController: CSConnectionDelegate {
         Task { @MainActor [weak self] in
             self?.supportsDisplayResize = supportsDisplayResize
             self?.supportsClipboard = true
+            self?.agentStateHandler?(true, true, supportsDisplayResize)
             self?.displayResizeSupportHandler?(supportsDisplayResize)
             self?.updateClipboardSharing()
         }
@@ -282,6 +312,7 @@ extension SPICEConnectionController: CSConnectionDelegate {
         Task { @MainActor [weak self] in
             self?.supportsDisplayResize = false
             self?.supportsClipboard = false
+            self?.agentStateHandler?(false, false, false)
             self?.displayResizeSupportHandler?(false)
             self?.updateClipboardSharing()
         }

@@ -109,11 +109,21 @@ final class GuestToolsCoordinator {
 
     func resolvedInputProfile(
         configuredProfile: MachineInputProfile,
-        machineName: String
+        machineName: String,
+        operatingSystem: GuestOperatingSystem = .linux
     ) -> MachineInputProfile {
+        if operatingSystem == .windows {
+            return configuredProfile.resolved(
+                for: operatingSystem,
+                machineNamed: machineName
+            )
+        }
         guard configuredProfile == .automatic,
               let desktop = state.status?.desktopEnvironment else {
-            return configuredProfile.resolved(forMachineNamed: machineName)
+            return configuredProfile.resolved(
+                for: operatingSystem,
+                machineNamed: machineName
+            )
         }
         switch desktop {
         case .hyprland:
@@ -121,7 +131,10 @@ final class GuestToolsCoordinator {
         case .gnome:
             return .macOSGNOME
         case .other:
-            return configuredProfile.resolved(forMachineNamed: machineName)
+            return configuredProfile.resolved(
+                for: operatingSystem,
+                machineNamed: machineName
+            )
         }
     }
 

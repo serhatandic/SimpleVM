@@ -29,7 +29,7 @@ enum KarabinerInputBridge {
             throw KarabinerBridgeError.virtualKeyboardUnavailable
         }
         try installRules(
-            preset: KeyboardMappingSettings.shared.activePreset
+            entries: KeyboardMappingSettings.shared.activeMappingEntries
         )
         let profile = try runCLI(["--show-current-profile-name"])
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -58,7 +58,7 @@ enum KarabinerInputBridge {
     }
 
     private static func installRules(
-        preset: KeyboardPreset
+        entries: [KeyboardMappingEntry]
     ) throws {
         let data: Data
         do {
@@ -83,7 +83,7 @@ enum KarabinerInputBridge {
         rules.removeAll {
             $0["description"] as? String == ruleDescription
         }
-        rules.append(generatedRule(for: preset))
+        rules.append(try generatedRule(entries: entries))
         modifications["rules"] = rules
         profile["complex_modifications"] = modifications
         profiles[profileIndex] = profile
@@ -106,9 +106,21 @@ enum KarabinerInputBridge {
     static func generatedRule(
         for preset: KeyboardPreset
     ) -> [String: Any] {
-        let manipulators = KeyboardMappingSettings.mappingEntries(
-            for: preset
-        ).compactMap(mapping)
+        (try? generatedRule(
+            entries: KeyboardMappingSettings.mappingEntries(for: preset)
+        )) ?? [
+            "description": ruleDescription,
+            "manipulators": []
+        ]
+    }
+
+    static func generatedRule(
+        entries: [KeyboardMappingEntry]
+    ) throws -> [String: Any] {
+        let manipulators = entries.compactMap(mapping)
+        guard manipulators.count == entries.count else {
+            throw KarabinerBridgeError.unsupportedMapping
+        }
         return [
             "description": ruleDescription,
             "manipulators": manipulators
@@ -189,6 +201,8 @@ enum KarabinerInputBridge {
         case 27: "hyphen"
         case 28: "8"
         case 29: "0"
+        case 30: "close_bracket"
+        case 33: "open_bracket"
         case 31: "o"
         case 32: "u"
         case 34: "i"
@@ -197,15 +211,34 @@ enum KarabinerInputBridge {
         case 37: "l"
         case 38: "j"
         case 40: "k"
+        case 39: "quote"
+        case 41: "semicolon"
+        case 42: "backslash"
+        case 43: "comma"
         case 44: "slash"
         case 45: "n"
         case 46: "m"
+        case 47: "period"
         case 48: "tab"
         case 49: "spacebar"
+        case 50: "grave_accent_and_tilde"
         case 51: "delete_or_backspace"
+        case 53: "escape"
+        case 96: "f5"
+        case 97: "f6"
+        case 98: "f7"
+        case 99: "f3"
+        case 100: "f8"
+        case 101: "f9"
         case 103: "f11"
+        case 109: "f10"
+        case 111: "f12"
         case 115: "home"
+        case 116: "page_up"
         case 118: "f4"
+        case 120: "f2"
+        case 121: "page_down"
+        case 122: "f1"
         case 117: "delete_forward"
         case 119: "end"
         case 123: "left_arrow"
@@ -265,6 +298,7 @@ enum KarabinerBridgeError: LocalizedError {
     case virtualKeyboardUnavailable
     case configurationUnavailable
     case invalidConfiguration
+    case unsupportedMapping
     case commandFailed(String)
 
     var errorDescription: String? {
@@ -277,6 +311,8 @@ enum KarabinerBridgeError: LocalizedError {
             "Open Karabiner-Elements once to create its configuration."
         case .invalidConfiguration:
             "Karabiner-Elements configuration is invalid."
+        case .unsupportedMapping:
+            "A custom keyboard mapping cannot be represented by Karabiner-Elements."
         case .commandFailed(let message):
             "Karabiner command failed: \(message)"
         }
